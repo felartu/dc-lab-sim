@@ -37,7 +37,9 @@ describe("live incident fault injection", () => {
     );
 
     expect(output.exitCode).toBe(0);
-    const gpu3Section = output.output.split("GPU 00000003")[1]?.split("GPU 00000004")[0];
+    const gpu3Section = output.output
+      .split("GPU 00000003")[1]
+      ?.split("GPU 00000004")[0];
     expect(gpu3Section).toContain("DRAM Uncorrectable            : 1");
     unmount();
   });
