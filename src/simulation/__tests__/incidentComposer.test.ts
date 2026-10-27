@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { IncidentComposer } from "../incidentComposer";
 
 describe("IncidentComposer", () => {
@@ -29,6 +29,23 @@ describe("IncidentComposer", () => {
       domain: 1,
     });
     expect(incident.templateDomains).toContain(1);
+  });
+
+  it("injects the ECC fault on the GPU named in the Domain 1 briefing", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const incident = composer.compose({
+        difficulty: "beginner",
+        domain: 1,
+      });
+
+      expect(incident.templateId).toBe("gpu-memory-xid48");
+      expect(incident.faults[0].gpuId).toBe(3);
+      expect(incident.situation).toContain("GPU 3");
+      expect(incident.correctRootCause).toContain("GPU 3");
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("aligns the incident briefing hostname with its injected target node", () => {
