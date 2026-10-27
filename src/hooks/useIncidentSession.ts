@@ -122,6 +122,14 @@ function mapIncidentFault(fault: {
         severity: "critical",
       };
 
+    case "ib-link-down":
+      return {
+        nodeId,
+        gpuId,
+        type: "ib-link-down" as FaultType,
+        severity: "critical",
+      };
+
     case "gpu-hang":
       return {
         nodeId,
