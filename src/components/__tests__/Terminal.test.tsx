@@ -91,9 +91,15 @@ vi.mock("../../store/simulationStore", () => {
   return { useSimulationStore: hook };
 });
 
+const { mockActiveIncidentContext } = vi.hoisted(() => ({
+  mockActiveIncidentContext: {
+    current: null as { getCluster: () => { nodes: unknown[] } } | null,
+  },
+}));
+
 vi.mock("../../store/scenarioContext", () => ({
   scenarioContextManager: {
-    getActiveContext: vi.fn(() => null),
+    getActiveContext: vi.fn(() => mockActiveIncidentContext.current),
     hasActiveContext: vi.fn(() => false),
     getOrCreateContext: vi.fn(() => ({
       getCluster: vi.fn(() => ({
@@ -290,11 +296,13 @@ vi.mock("../../simulators/linuxUtilsSimulator", () => ({
 
 import { Terminal } from "../Terminal";
 import { generateWelcomeMessage } from "../../constants/terminalConfig";
+import { scenarioContextManager } from "../../store/scenarioContext";
 
 describe("Terminal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSimulationState.activeScenario = null;
+    mockActiveIncidentContext.current = null;
   });
 
   it("renders the terminal container", () => {
@@ -370,6 +378,18 @@ describe("Terminal", () => {
         variant: "full",
       });
     });
+  });
+
+  it("preserves an active incident context when mounted without a mission", () => {
+    mockActiveIncidentContext.current = {
+      getCluster: () => ({ nodes: [{ id: "dgx-03" }] }),
+    };
+
+    render(<Terminal />);
+
+    expect(scenarioContextManager.setActiveContext).not.toHaveBeenCalledWith(
+      null,
+    );
   });
 
   it("does not write a welcome banner while a mission is in progress", async () => {
