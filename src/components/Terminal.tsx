@@ -252,13 +252,22 @@ export const Terminal: React.FC<TerminalProps> = ({
         `Terminal: Using scenario context for ${store.activeScenario.id}`,
       );
     } else {
-      // Clear scenario context when no active scenario
-      scenarioContextManager.setActiveContext(null);
-      currentContext.current.scenarioContext = undefined;
-      currentContext.current.cluster = store.cluster;
-      slurmSimulator.current.clearJobs();
+      // Live incidents also use an isolated ScenarioContext, but they do not
+      // set store.activeScenario. Preserve that context when the SimulatorView
+      // mounts after an incident is launched from another tab.
+      const activeContext = scenarioContextManager.getActiveContext();
+      if (activeContext) {
+        currentContext.current.scenarioContext = activeContext;
+        currentContext.current.cluster = activeContext.getCluster();
+        logger.debug("Terminal: Using active incident context");
+      } else {
+        scenarioContextManager.setActiveContext(null);
+        currentContext.current.scenarioContext = undefined;
+        currentContext.current.cluster = store.cluster;
+        slurmSimulator.current.clearJobs();
 
-      logger.debug("Terminal: Cleared scenario context");
+        logger.debug("Terminal: Cleared scenario context");
+      }
     }
   }, [activeScenarioId]);
 
