@@ -159,7 +159,8 @@ export class IncidentComposer {
     const nodeId = pickRandom(NODE_IDS);
 
     return template.primaryFaults.map((pf) => {
-      const gpuId = pf.target === "node" ? 0 : randomInt(GPU_COUNT);
+      const gpuId =
+        pf.target === "node" ? 0 : (pf.gpuId ?? randomInt(GPU_COUNT));
 
       return {
         faultType: pf.faultType,
