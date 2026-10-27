@@ -23,6 +23,14 @@ describe("IncidentComposer", () => {
     expect(incident.templateDomains).toContain(2);
   });
 
+  it("keeps Domain 1 selected when intermediate has no Domain 1 template", () => {
+    const incident = composer.compose({
+      difficulty: "intermediate",
+      domain: 1,
+    });
+    expect(incident.templateDomains).toContain(1);
+  });
+
   it("aligns the incident briefing hostname with its injected target node", () => {
     const incident = composer.compose({
       difficulty: "intermediate",
