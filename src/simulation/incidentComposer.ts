@@ -97,16 +97,22 @@ export class IncidentComposer {
     const template = this.pickTemplate(options);
     const faults = this.resolveFaults(template);
     const redHerrings = this.resolveRedHerrings(options.difficulty, faults);
+    const targetNode = faults[0]?.nodeId;
+    const alignNarrative = (text: string) => {
+      let aligned = text;
+      if (targetNode) aligned = aligned.replace(/dgx-\d+/g, targetNode);
+      return aligned;
+    };
 
     return {
       templateId: template.id,
-      situation: template.situation,
+      situation: alignNarrative(template.situation),
       faults,
       redHerrings,
       propagationTrigger: template.propagationTrigger,
       diagnosticPath: [...template.diagnosticPath],
-      rootCauseOptions: [...template.rootCauseOptions],
-      correctRootCause: template.correctRootCause,
+      rootCauseOptions: template.rootCauseOptions.map(alignNarrative),
+      correctRootCause: alignNarrative(template.correctRootCause),
       templateDomains: [...template.domains],
     };
   }
@@ -116,26 +122,31 @@ export class IncidentComposer {
   // -----------------------------------------------------------------------
 
   private pickTemplate(options: ComposeOptions): IncidentTemplate {
-    let candidates = INCIDENT_TEMPLATES.filter(
+    const difficultyCandidates = INCIDENT_TEMPLATES.filter(
       (t) => t.difficulty === options.difficulty,
     );
 
     if (options.domain !== undefined) {
-      const domainFiltered = candidates.filter((t) =>
+      const domainCandidates = INCIDENT_TEMPLATES.filter((t) =>
         t.domains.includes(options.domain!),
       );
-      if (domainFiltered.length > 0) {
-        candidates = domainFiltered;
-      }
-      // If domain filter yields nothing, keep the difficulty-only list
+      const matchingCandidates = difficultyCandidates.filter((t) =>
+        t.domains.includes(options.domain!),
+      );
+      // The selected domain is a hard constraint. If it has no template at
+      // the requested difficulty, use a template from that domain anyway.
+      const candidates =
+        matchingCandidates.length > 0 ? matchingCandidates : domainCandidates;
+      return pickRandom(
+        candidates.length > 0 ? candidates : INCIDENT_TEMPLATES,
+      );
     }
 
-    // Fall back to any template if difficulty filter also yields nothing
-    if (candidates.length === 0) {
-      candidates = [...INCIDENT_TEMPLATES];
-    }
-
-    return pickRandom(candidates);
+    return pickRandom(
+      difficultyCandidates.length > 0
+        ? difficultyCandidates
+        : INCIDENT_TEMPLATES,
+    );
   }
 
   /**
