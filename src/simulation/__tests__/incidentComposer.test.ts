@@ -18,6 +18,22 @@ describe("IncidentComposer", () => {
     expect(incident.templateDomains).toContain(1);
   });
 
+  it("keeps the selected domain when its requested difficulty has no template", () => {
+    const incident = composer.compose({ difficulty: "beginner", domain: 2 });
+    expect(incident.templateDomains).toContain(2);
+  });
+
+  it("aligns the incident briefing hostname with its injected target node", () => {
+    const incident = composer.compose({
+      difficulty: "intermediate",
+      domain: 2,
+    });
+    expect(incident.situation).toContain(incident.faults[0].nodeId);
+    expect(new Set(incident.situation.match(/dgx-\d+/g))).toEqual(
+      new Set([incident.faults[0].nodeId]),
+    );
+  });
+
   it("should add red herrings at intermediate difficulty", () => {
     const incident = composer.compose({ difficulty: "intermediate" });
     expect(incident.redHerrings.length).toBeGreaterThanOrEqual(0);
