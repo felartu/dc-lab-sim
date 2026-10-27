@@ -350,8 +350,8 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "port cannot establish a connection to the leaf switch.",
     difficulty: "intermediate",
     domains: [2],
-    primaryFaults: [{ faultType: "nvlink-failure", target: "node" }],
-    propagationTrigger: "nvlink-failure",
+    primaryFaults: [{ faultType: "ib-link-down", target: "node" }],
+    propagationTrigger: "ib-link-down",
     diagnosticPath: [
       "ibstat",
       "ibdiagnet",
