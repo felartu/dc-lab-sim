@@ -4,6 +4,7 @@ import type {
   NarrativeScenario,
 } from "@/types/scenarios";
 import type { ScenarioContext } from "@/store/scenarioContext";
+import type { InfiniBandHCA } from "@/types/hardware";
 import { useSimulationStore } from "@/store/simulationStore";
 import { narrativeToScenario } from "./narrativeAdapter";
 import { createDGXNode } from "./clusterFactory";
@@ -13,6 +14,33 @@ import { logger } from "@/utils/logger";
 let scenarioCache: Map<string, Scenario> | null = null;
 // Cache for raw narrative data
 let narrativeScenarios: NarrativeScenario[] | null = null;
+
+function setInfiniBandPortDown(
+  hcas: InfiniBandHCA[],
+  hcaId: number,
+  portNumber: number,
+): InfiniBandHCA[] {
+  return hcas.map((hca) =>
+    hca.id !== hcaId
+      ? hca
+      : {
+          ...hca,
+          ports: hca.ports.map((port) =>
+            port.portNumber !== portNumber
+              ? port
+              : {
+                  ...port,
+                  state: "Down",
+                  physicalState: "LinkDown",
+                  errors: {
+                    ...port.errors,
+                    linkDowned: port.errors.linkDowned + 1,
+                  },
+                },
+          ),
+        },
+  );
+}
 
 /**
  * Lazily load narrative scenario data via dynamic import.
@@ -158,6 +186,23 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
         }
         break;
 
+      case "ib-link-down": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node) {
+          store.updateHCAs(
+            nodeId,
+            setInfiniBandPortDown(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+            ),
+          );
+        }
+        break;
+      }
+
       case "gpu-hang":
         if (gpuId !== undefined) {
           store.updateGPU(nodeId, gpuId, {
@@ -241,6 +286,21 @@ export function applyFaultsToContext(
           });
         }
         break;
+
+      case "ib-link-down": {
+        const node = context.getNode(nodeId);
+        if (node) {
+          context.updateHCAs(
+            nodeId,
+            setInfiniBandPortDown(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+            ),
+          );
+        }
+        break;
+      }
 
       case "gpu-hang":
         if (gpuId !== undefined) {
