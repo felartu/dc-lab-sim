@@ -24,6 +24,8 @@ export interface IncidentTemplate {
   primaryFaults: Array<{
     faultType: string;
     target: "random-gpu" | "specific-gpu" | "node";
+    /** Fixed GPU index when the incident narrative names a particular GPU. */
+    gpuId?: number;
   }>;
   /** Links to a trigger ID in faultPropagationRules.ts */
   propagationTrigger: string;
@@ -57,7 +59,9 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "usable until a reset or reboot.",
     difficulty: "beginner",
     domains: [1],
-    primaryFaults: [{ faultType: "ecc-error", target: "specific-gpu" }],
+    primaryFaults: [
+      { faultType: "ecc-error", target: "specific-gpu", gpuId: 3 },
+    ],
     propagationTrigger: "xid-48",
     diagnosticPath: [
       "nvidia-smi",
