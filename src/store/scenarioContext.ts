@@ -8,6 +8,7 @@
 import type {
   ClusterConfig,
   GPU,
+  InfiniBandHCA,
   DGXNode as Node,
   HealthStatus,
   XIDError,
@@ -35,6 +36,7 @@ export type StateChange =
   | (StateChangeBase & { type: "gpu-update"; data: Partial<GPU> })
   | (StateChangeBase & { type: "node-update"; data: Partial<Node> })
   | (StateChangeBase & { type: "node-health"; data: { health: HealthStatus } })
+  | (StateChangeBase & { type: "hca-update"; data: InfiniBandHCA[] })
   | (StateChangeBase & { type: "xid-error"; data: XIDError })
   | (StateChangeBase & {
       type: "slurm-state";
@@ -134,6 +136,30 @@ export class ScenarioContext {
       data: updates,
       command,
       description: `Updated GPU ${gpuId} on ${nodeId}`,
+    });
+  }
+
+  /** Update InfiniBand HCA state in the isolated cluster. */
+  updateHCAs(nodeId: string, hcas: InfiniBandHCA[], command?: string): void {
+    if (this.readonly) {
+      logger.warn("Cannot update HCAs in readonly context");
+      return;
+    }
+
+    const node = this.getNode(nodeId);
+    if (!node) {
+      logger.error(`Node ${nodeId} not found in scenario context`);
+      return;
+    }
+
+    node.hcas = hcas;
+    this.mutations.push({
+      type: "hca-update",
+      timestamp: Date.now(),
+      nodeId,
+      data: hcas,
+      command,
+      description: `Updated InfiniBand HCAs on ${nodeId}`,
     });
   }
 
@@ -403,6 +429,12 @@ export class ScenarioContext {
           }
           break;
 
+        case "hca-update":
+          if (mutation.nodeId) {
+            store.updateHCAs(mutation.nodeId, mutation.data);
+          }
+          break;
+
         case "xid-error":
           if (mutation.nodeId !== undefined && mutation.gpuId !== undefined) {
             store.addXIDError(mutation.nodeId, mutation.gpuId, mutation.data);
@@ -542,11 +574,10 @@ export class ScenarioContext {
    * default if not set, matching real systemd behavior where most services
    * are running unless explicitly marked otherwise by a scenario.
    */
-  getServiceState(
-    nodeId: string,
-    serviceName: string,
-  ): "active" | "inactive" {
-    return this.serviceStates.get(this.serviceKey(nodeId, serviceName)) ?? "active";
+  getServiceState(nodeId: string, serviceName: string): "active" | "inactive" {
+    return (
+      this.serviceStates.get(this.serviceKey(nodeId, serviceName)) ?? "active"
+    );
   }
 
   /**
