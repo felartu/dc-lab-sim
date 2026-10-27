@@ -1196,6 +1196,18 @@ export const Terminal: React.FC<TerminalProps> = ({
         return;
       }
 
+      // Live incidents create their isolated ScenarioContext outside the
+      // activeScenario store field. Resolve it here so diagnostics such as
+      // ibstat read the same faulted cluster shown in the dashboard.
+      const activeContext = scenarioContextManager.getActiveContext();
+      if (activeContext) {
+        currentContext.current.scenarioContext = activeContext;
+        currentContext.current.cluster = activeContext.getCluster();
+      } else if (!useSimulationStore.getState().activeScenario) {
+        currentContext.current.scenarioContext = undefined;
+        currentContext.current.cluster = useSimulationStore.getState().cluster;
+      }
+
       // Expand $(command) shell substitutions before processing.
       // In a real bash shell these would be expanded by the shell;
       // in the simulator we expand common patterns to simulated values.
