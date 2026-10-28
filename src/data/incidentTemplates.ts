@@ -217,11 +217,14 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "damage. If uncorrected, the hottest GPU risks a thermal shutdown (XID 43).",
     difficulty: "beginner",
     domains: [5],
-    primaryFaults: Array.from({ length: 8 }, (_, gpuId) => ({
-      faultType: "thermal",
-      target: "specific-gpu" as const,
-      gpuId,
-    })),
+    primaryFaults: [
+      ...Array.from({ length: 8 }, (_, gpuId) => ({
+        faultType: "thermal",
+        target: "specific-gpu" as const,
+        gpuId,
+      })),
+      { faultType: "inlet-42", target: "node" },
+    ],
     propagationTrigger: "thermal-runaway",
     diagnosticPath: [
       "nvidia-smi",
@@ -339,11 +342,14 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "GPU boost clocks and throughput.",
     difficulty: "beginner",
     domains: [1],
-    primaryFaults: [0, 1, 2, 3].map((gpuId) => ({
-      faultType: "power-cap",
-      target: "specific-gpu" as const,
-      gpuId,
-    })),
+    primaryFaults: [
+      ...[0, 1, 2, 3].map((gpuId) => ({
+        faultType: "power-cap",
+        target: "specific-gpu" as const,
+        gpuId,
+      })),
+      { faultType: "psu-stress", target: "node" },
+    ],
     propagationTrigger: "power-anomaly",
     diagnosticPath: [
       "nvidia-smi",
@@ -431,6 +437,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
         target: "specific-gpu" as const,
         gpuId,
       })),
+      { faultType: "inlet-39", target: "node" },
     ],
     propagationTrigger: "nvlink-failure",
     diagnosticPath: [

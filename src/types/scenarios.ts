@@ -9,6 +9,7 @@ export type FaultType =
   | "ecc-error"
   | "thermal"
   | "power"
+  | "bmc-sensor"
   | "ib-link-down"
   | "nvlink-failure"
   | "gpu-hang"

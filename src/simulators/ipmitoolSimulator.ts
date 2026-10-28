@@ -353,8 +353,8 @@ export class IpmitoolSimulator extends BaseSimulator {
         lnr: "-9.000",
         lc: "-7.000",
         lnc: "-5.000",
-        unc: "80.000",
-        uc: "85.000",
+        unc: sensor.upperWarning?.toFixed(3) ?? "80.000",
+        uc: sensor.upperCritical?.toFixed(3) ?? "85.000",
         unr: "90.000",
       };
     }
@@ -381,8 +381,8 @@ export class IpmitoolSimulator extends BaseSimulator {
         lnr: "na",
         lc: "na",
         lnc: "na",
-        unc: "19890.000",
-        uc: "19890.000",
+        unc: sensor.upperWarning?.toFixed(3) ?? "19890.000",
+        uc: sensor.upperCritical?.toFixed(3) ?? "19890.000",
         unr: "na",
       };
     }
@@ -904,6 +904,20 @@ export class IpmitoolSimulator extends BaseSimulator {
           recordId++;
         }
       });
+
+      node.bmc.sensors
+        .filter(
+          (sensor) =>
+            sensor.status === "Warning" || sensor.status === "Critical",
+        )
+        .forEach((sensor) => {
+          const hexId = recordId.toString(16).padStart(4, "0");
+          const timeStr = new Date().toLocaleString("en-US");
+          entries.push(
+            `   ${hexId} | ${timeStr} | ${sensor.name} | ${sensor.status} | ${sensor.reading} ${sensor.unit}`,
+          );
+          recordId++;
+        });
 
       if (entries.length === 0) {
         return this.createSuccess("SEL has no entries\n");

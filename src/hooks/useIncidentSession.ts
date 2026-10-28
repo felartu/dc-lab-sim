@@ -191,6 +191,32 @@ function mapIncidentFault(fault: {
         parameters: { powerLimit: 300 },
       };
 
+    case "psu-stress":
+      return {
+        nodeId,
+        type: "bmc-sensor",
+        severity: "warning",
+        parameters: {
+          sensorName: "PSU1 Power",
+          reading: 2850,
+          upperWarning: 2700,
+          upperCritical: 3000,
+        },
+      };
+
+    case "inlet-42":
+    case "inlet-39":
+      return {
+        nodeId,
+        type: "bmc-sensor",
+        severity: "warning",
+        parameters: {
+          sensorName: "Inlet Temp",
+          reading: faultType === "inlet-42" ? 42 : 39,
+          upperWarning: 35,
+        },
+      };
+
     default:
       // Best-effort: use faultType as the type directly
       return {

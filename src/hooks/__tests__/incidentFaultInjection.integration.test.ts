@@ -1,9 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
+import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
 import { useIncidentSession } from "@/hooks/useIncidentSession";
 import { parse } from "@/utils/commandParser";
 import { scenarioContextManager } from "@/store/scenarioContext";
+import { useSimulationStore } from "@/store/simulationStore";
 import { INCIDENT_TEMPLATES } from "@/data/incidentTemplates";
 
 describe("live incident fault injection", () => {
@@ -88,6 +90,9 @@ describe("live incident fault injection", () => {
           expect(
             node.gpus.every((g) => g.temperature === 95 && g.clocksSM === 600),
           ).toBe(true);
+          expect(
+            node.bmc.sensors.find((s) => s.name === "Inlet Temp")?.reading,
+          ).toBe(42);
           break;
         case "ecc-accumulation-row-remap":
           expect(gpu(6).eccErrors.singleBit).toBe(1247);
@@ -115,6 +120,9 @@ describe("live incident fault injection", () => {
           for (const i of [3, 4])
             expect(gpu(i).nvlinks[2].replayErrors).toBeGreaterThan(0);
           for (const i of [6, 7]) expect(gpu(i).temperature).toBe(95);
+          expect(
+            node.bmc.sensors.find((s) => s.name === "Inlet Temp")?.reading,
+          ).toBe(39);
           break;
         case "driver-error-bringup":
           expect(context.getServiceState(nodeId!, "nvidia-driver")).toBe(
@@ -202,6 +210,39 @@ describe("live incident fault injection", () => {
     expect(gpu0Section).toContain(
       "Current Power Limit               : 300.00 W",
     );
+    const ipmi = new IpmitoolSimulator();
+    const commandContext = {
+      currentNode: targetNode!.id,
+      currentPath: "/root",
+      environment: {},
+      history: [],
+      cluster: incidentContext!.getCluster(),
+      scenarioContext: incidentContext,
+    };
+    const sensors = ipmi.execute(parse("ipmitool sensor"), commandContext);
+    expect(sensors.output).toMatch(
+      /PSU1 Power\s*\|\s*2850\.000\s*\|\s*W\s*\|\s*nc/,
+    );
+    expect(sensors.output).toContain("2700.000");
+    expect(sensors.output).toContain("3000.000");
+    const sdr = ipmi.execute(parse("ipmitool sdr list"), commandContext);
+    expect(sdr.output).toMatch(/PSU1 Power\s*\|\s*2850\.00 W\s*\| Warning/);
+    expect(
+      ipmi.execute(parse("ipmitool sel list"), commandContext).output,
+    ).toMatch(/PSU1 Power.*Warning.*2850 W/);
+    const otherNode = incidentContext!
+      .getCluster()
+      .nodes.find((node) => node.id !== targetNode!.id)!;
+    expect(
+      otherNode.bmc.sensors.find((sensor) => sensor.name === "PSU1 Power")
+        ?.reading,
+    ).toBe(850);
+    expect(
+      useSimulationStore
+        .getState()
+        .cluster.nodes.find((node) => node.id === targetNode!.id)!
+        .bmc.sensors.find((sensor) => sensor.name === "PSU1 Power")?.reading,
+    ).toBe(850);
     unmount();
   });
 });

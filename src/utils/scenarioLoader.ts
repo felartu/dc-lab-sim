@@ -4,7 +4,7 @@ import type {
   NarrativeScenario,
 } from "@/types/scenarios";
 import type { ScenarioContext } from "@/store/scenarioContext";
-import type { GPU, InfiniBandHCA } from "@/types/hardware";
+import type { GPU, InfiniBandHCA, BMCSensor } from "@/types/hardware";
 import { useSimulationStore } from "@/store/simulationStore";
 import { narrativeToScenario } from "./narrativeAdapter";
 import { createDGXNode } from "./clusterFactory";
@@ -66,6 +66,32 @@ function getPowerFaultUpdates(
   }
 
   return { powerDraw: requestedDraw ?? 700 };
+}
+
+function updateFaultedSensor(
+  sensors: BMCSensor[],
+  parameters: Record<string, unknown> | undefined,
+): BMCSensor[] {
+  return sensors.map((sensor) =>
+    sensor.name === parameters?.sensorName
+      ? {
+          ...sensor,
+          reading:
+            typeof parameters.reading === "number"
+              ? parameters.reading
+              : sensor.reading,
+          status: "Warning",
+          upperWarning:
+            typeof parameters.upperWarning === "number"
+              ? parameters.upperWarning
+              : sensor.upperWarning,
+          upperCritical:
+            typeof parameters.upperCritical === "number"
+              ? parameters.upperCritical
+              : sensor.upperCritical,
+        }
+      : sensor,
+  );
 }
 
 /**
@@ -237,6 +263,18 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
         }
         break;
 
+      case "bmc-sensor": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node)
+          store.updateBMCSensors(
+            nodeId,
+            updateFaultedSensor(node.bmc.sensors, parameters),
+          );
+        break;
+      }
+
       case "power":
         if (gpuId !== undefined) {
           const node = store.cluster.nodes.find(
@@ -352,6 +390,16 @@ export function applyFaultsToContext(
           });
         }
         break;
+
+      case "bmc-sensor": {
+        const node = context.getNode(nodeId);
+        if (node)
+          context.updateBMCSensors(
+            nodeId,
+            updateFaultedSensor(node.bmc.sensors, parameters),
+          );
+        break;
+      }
 
       case "power":
         if (gpuId !== undefined) {

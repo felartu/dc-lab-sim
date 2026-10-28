@@ -12,6 +12,7 @@ import type {
   DGXNode as Node,
   HealthStatus,
   XIDError,
+  BMCSensor,
 } from "@/types/hardware";
 import type { SeedJob } from "@/types/scenarios";
 import { useSimulationStore } from "./simulationStore";
@@ -37,6 +38,7 @@ export type StateChange =
   | (StateChangeBase & { type: "node-update"; data: Partial<Node> })
   | (StateChangeBase & { type: "node-health"; data: { health: HealthStatus } })
   | (StateChangeBase & { type: "hca-update"; data: InfiniBandHCA[] })
+  | (StateChangeBase & { type: "bmc-sensors"; data: BMCSensor[] })
   | (StateChangeBase & { type: "xid-error"; data: XIDError })
   | (StateChangeBase & {
       type: "slurm-state";
@@ -160,6 +162,32 @@ export class ScenarioContext {
       data: hcas,
       command,
       description: `Updated InfiniBand HCAs on ${nodeId}`,
+    });
+  }
+
+  /** Update BMC sensors in the isolated cluster. */
+  updateBMCSensors(
+    nodeId: string,
+    sensors: BMCSensor[],
+    command?: string,
+  ): void {
+    if (this.readonly) {
+      logger.warn("Cannot update BMC sensors in readonly context");
+      return;
+    }
+    const node = this.getNode(nodeId);
+    if (!node) {
+      logger.error(`Node ${nodeId} not found in scenario context`);
+      return;
+    }
+    node.bmc.sensors = sensors;
+    this.mutations.push({
+      type: "bmc-sensors",
+      timestamp: Date.now(),
+      nodeId,
+      data: sensors,
+      command,
+      description: `Updated BMC sensors on ${nodeId}`,
     });
   }
 
@@ -433,6 +461,11 @@ export class ScenarioContext {
           if (mutation.nodeId) {
             store.updateHCAs(mutation.nodeId, mutation.data);
           }
+          break;
+
+        case "bmc-sensors":
+          if (mutation.nodeId)
+            store.updateBMCSensors(mutation.nodeId, mutation.data);
           break;
 
         case "xid-error":

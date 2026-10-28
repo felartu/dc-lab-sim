@@ -21,6 +21,7 @@ interface SimulatorViewProps {
   className?: string;
   missionMode?: boolean;
   showDashboard?: boolean;
+  onIncidentCommand?: (command: string) => void;
 }
 
 const STORAGE_KEY = "simulator-split-ratio";
@@ -45,6 +46,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   className = "",
   missionMode = false,
   showDashboard = false,
+  onIncidentCommand,
 }) => {
   // Load persisted ratio from localStorage
   const getInitialRatio = () => {
@@ -427,7 +429,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                 onQuizComplete={handleQuizComplete}
               />
             )}
-            <Terminal className="flex-1" onReady={handleTerminalReady} />
+            <Terminal
+              className="flex-1"
+              onReady={handleTerminalReady}
+              onIncidentCommand={onIncidentCommand}
+            />
           </div>
           <div
             className={`h-full overflow-auto p-4 bg-gray-900 ${mobileTab !== "faults" ? "hidden" : ""}`}
@@ -491,7 +497,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             <Dashboard />
           </div>
         ) : (
-          <Terminal className="flex-1" onReady={handleTerminalReady} />
+          <Terminal
+            className="flex-1"
+            onReady={handleTerminalReady}
+            onIncidentCommand={onIncidentCommand}
+          />
         )}
       </div>
     );
@@ -728,6 +738,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                     <Terminal
                       className="flex-1"
                       onReady={handleTerminalReady}
+                      onIncidentCommand={onIncidentCommand}
                     />
                   </div>
                   <div

@@ -95,7 +95,11 @@ describe("IncidentComposer", () => {
       });
 
       expect(incident.templateId).toBe("power-supply-stress");
-      expect(incident.faults.map((fault) => fault.gpuId)).toEqual([0, 1, 2, 3]);
+      expect(
+        incident.faults
+          .filter((fault) => fault.faultType === "power-cap")
+          .map((fault) => fault.gpuId),
+      ).toEqual([0, 1, 2, 3]);
       expect(new Set(incident.faults.map((fault) => fault.nodeId)).size).toBe(
         1,
       );

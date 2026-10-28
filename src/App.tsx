@@ -170,7 +170,6 @@ function App() {
     abandonIncident,
     requestHint,
   } = incidentSession;
-  // incidentSession.recordCommand is available for Terminal integration (Task 15)
 
   // One-time cleanup of deprecated learning path localStorage keys
   useEffect(() => {
@@ -360,7 +359,14 @@ function App() {
             className={`flex-1 h-0 flex flex-col overflow-hidden transition-all duration-300 ${(showLabWorkspace && !activeScenario) || incidentState === "active" ? "xl:ml-[clamp(340px,30vw,560px)]" : ""}`}
           >
             {currentView === "simulator" && (
-              <SimulatorView className="flex-1 h-full" />
+              <SimulatorView
+                className="flex-1 h-full"
+                onIncidentCommand={
+                  incidentState === "active"
+                    ? incidentSession.recordCommand
+                    : undefined
+                }
+              />
             )}
 
             <Suspense fallback={<ViewFallback />}>

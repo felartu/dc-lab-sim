@@ -8,6 +8,7 @@ import type {
   HealthStatus,
   XIDError,
   InfiniBandHCA,
+  BMCSensor,
 } from "@/types/hardware";
 import type {
   Scenario,
@@ -108,6 +109,7 @@ interface SimulationState {
   selectNode: (nodeId: string) => void;
   updateGPU: (nodeId: string, gpuId: number, updates: Partial<GPU>) => void;
   updateHCAs: (nodeId: string, hcas: InfiniBandHCA[]) => void;
+  updateBMCSensors: (nodeId: string, sensors: BMCSensor[]) => void;
   updateNodeHealth: (nodeId: string, health: HealthStatus) => void;
   setBugReportCollected: (nodeId: string, value: boolean) => void;
   addXIDError: (nodeId: string, gpuId: number, error: XIDError) => void;
@@ -283,6 +285,12 @@ export const useSimulationStore = create<SimulationState>()(
           if (node) {
             node.hcas = hcas;
           }
+        }),
+
+      updateBMCSensors: (nodeId, sensors) =>
+        set((state) => {
+          const node = state.cluster.nodes.find((n) => n.id === nodeId);
+          if (node) node.bmc.sensors = sensors;
         }),
 
       updateNodeHealth: (nodeId, health) =>

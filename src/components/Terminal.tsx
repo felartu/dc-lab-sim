@@ -113,11 +113,13 @@ interface TerminalProps {
    * intended node rather than whichever node the terminal is currently on.
    */
   onReady?: (pasteCommand: (cmd: string, targetNode?: string) => void) => void;
+  onIncidentCommand?: (command: string) => void;
 }
 
 export const Terminal: React.FC<TerminalProps> = ({
   className = "",
   onReady,
+  onIncidentCommand,
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -149,6 +151,8 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Ref to capture onReady callback (init effect has [] deps so we need a ref)
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onIncidentCommandRef = useRef(onIncidentCommand);
+  onIncidentCommandRef.current = onIncidentCommand;
 
   // Command simulators
   const nvidiaSmiSimulator = useRef(new NvidiaSmiSimulator());
@@ -1339,6 +1343,14 @@ export const Terminal: React.FC<TerminalProps> = ({
 
         if (result.output) {
           term.writeln("\n" + result.output);
+        }
+
+        if (
+          !pipeSyntaxError &&
+          result.exitCode !== 127 &&
+          !["ssh", "help", "hint"].includes(command)
+        ) {
+          onIncidentCommandRef.current?.(originalCmdLine);
         }
 
         // Scenario Validation - Check for active scenario and validate command
