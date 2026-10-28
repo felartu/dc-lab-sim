@@ -95,7 +95,6 @@ function mapIncidentFault(fault: {
         parameters: { targetTemp: 82 },
       };
 
-    case "ecc-accumulation":
     case "ecc-error":
       return {
         nodeId,
@@ -103,6 +102,33 @@ function mapIncidentFault(fault: {
         type: "ecc-error" as FaultType,
         severity: "critical",
         parameters: { singleBit: 150, doubleBit: 1 },
+      };
+
+    case "ecc-accumulation":
+      return {
+        nodeId,
+        gpuId,
+        type: "ecc-error",
+        severity: "warning",
+        parameters: { singleBit: 1247, doubleBit: 0 },
+      };
+
+    case "thermal":
+      return {
+        nodeId,
+        gpuId,
+        type: "thermal",
+        severity: "critical",
+        parameters: { targetTemp: 95, clocksSM: 600 },
+      };
+
+    case "slurm-drain":
+      return {
+        nodeId,
+        gpuId,
+        type: "set-slurm-state",
+        severity: "warning",
+        parameters: { state: "drain", reason: "GPU not responding" },
       };
 
     case "single-bit-ecc":
