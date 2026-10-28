@@ -458,7 +458,7 @@ export function calculateExamScore(
     questionResults.push({
       questionId: question.id,
       correct,
-      userAnswer: userAnswer || "",
+      userAnswer: userAnswer ?? "",
       correctAnswer: question.correctAnswer,
       points: question.points,
     });

@@ -6,7 +6,7 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
-import type { ExamQuestion, ExamState } from "@/types/scenarios";
+import type { ExamBreakdown, ExamQuestion, ExamState } from "@/types/scenarios";
 
 // ============================================================================
 // Mock data
@@ -72,10 +72,14 @@ vi.mock("@/store/simulationStore", () => ({
 }));
 
 const mockAddExamAttempt = vi.fn();
+let mockExamAttempts: ExamBreakdown[] = [];
 
 vi.mock("@/store/learningStore", () => ({
   useLearningStore: vi.fn((selector?: unknown) => {
-    const state = { addExamAttempt: mockAddExamAttempt };
+    const state = {
+      addExamAttempt: mockAddExamAttempt,
+      examAttempts: mockExamAttempts,
+    };
     return typeof selector === "function" ? selector(state) : state;
   }),
 }));
@@ -92,6 +96,7 @@ vi.mock("@/utils/examEngine", () => ({
   loadExamQuestions: vi.fn(),
   selectExamQuestions: vi.fn(),
   selectQuestionsForMode: vi.fn(),
+  getIncorrectQuestionIds: vi.fn().mockReturnValue(["q2"]),
   createExamConfig: vi.fn().mockReturnValue({
     mode: "full-practice",
     name: "Full Practice Exam",
@@ -158,6 +163,8 @@ import {
   selectExamQuestions,
   selectQuestionsForMode,
   ExamTimer,
+  createExamConfig,
+  calculateExamScore,
 } from "@/utils/examEngine";
 
 // ============================================================================
@@ -234,11 +241,49 @@ describe("ExamWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockActiveExam = null;
+    mockExamAttempts = [];
 
     // Default: loadExamQuestions returns empty so loading state stays
     vi.mocked(loadExamQuestions).mockResolvedValue([]);
     vi.mocked(selectExamQuestions).mockReturnValue([]);
     vi.mocked(selectQuestionsForMode).mockReturnValue([]);
+  });
+
+  it("passes the latest incorrect questions and weak domains to the exam configuration", async () => {
+    const previous = vi.mocked(calculateExamScore)([], {});
+    mockExamAttempts = [previous];
+    vi.mocked(loadExamQuestions).mockResolvedValue(mockQuestions);
+    vi.mocked(selectQuestionsForMode).mockReturnValue(mockQuestions);
+    render(<ExamWorkspace onClose={onClose} mode="review-mode" />);
+    await waitFor(() => expect(mockTimerStart).toHaveBeenCalled());
+    expect(createExamConfig).toHaveBeenCalledWith("review-mode", {
+      reviewQuestionIds: ["q2"],
+      weakDomains: ["domain2"],
+    });
+  });
+
+  it("shows a closeable empty state when there are no questions to review", async () => {
+    render(<ExamWorkspace onClose={onClose} mode="review-mode" />);
+    await screen.findByText(/no incorrect answers from your latest exam/i);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(mockTimerStart).not.toHaveBeenCalled();
+  });
+
+  it("does not start a countdown for an untimed review", async () => {
+    const config = vi.mocked(createExamConfig)("full-practice");
+    vi.mocked(createExamConfig).mockReturnValue({
+      ...config,
+      mode: "review-mode",
+      timeLimitMinutes: 0,
+    });
+    vi.mocked(loadExamQuestions).mockResolvedValue(mockQuestions);
+    vi.mocked(selectQuestionsForMode).mockReturnValue(mockQuestions);
+    const view = render(<ExamWorkspace onClose={onClose} mode="review-mode" />);
+    await screen.findByText("No time limit");
+    expect(mockTimerStart).not.toHaveBeenCalled();
+    view.unmount();
+    vi.mocked(createExamConfig).mockReturnValue(config);
   });
 
   it("submits the current exam when the timer expires and stops the timer on unmount", async () => {

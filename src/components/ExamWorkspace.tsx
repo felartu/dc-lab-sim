@@ -9,12 +9,13 @@ import {
   ChevronRight,
   CheckCircle,
 } from "lucide-react";
-import type { ExamQuestion } from "@/types/scenarios";
+import type { DomainId, ExamQuestion } from "@/types/scenarios";
 import {
   loadExamQuestions,
   selectQuestionsForMode,
   createExamConfig,
   calculateExamScore,
+  getIncorrectQuestionIds,
   ExamTimer,
   isExamPassed,
   type ExamMode,
@@ -88,16 +89,31 @@ export function ExamWorkspace({
     toggleQuestionFlag,
   } = useSimulationStore();
   const addExamAttempt = useLearningStore((state) => state.addExamAttempt);
+  const examAttempts = useLearningStore((state) => state.examAttempts) ?? [];
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
-  const examConfig = createExamConfig(mode as ExamMode);
+  const latestAttempt = examAttempts[examAttempts.length - 1];
+  const weakDomains = latestAttempt
+    ? (Object.keys(latestAttempt.byDomain) as DomainId[]).filter((domain) => {
+        const performance = latestAttempt.byDomain[domain];
+        return performance.questionsTotal > 0 && performance.percentage < 70;
+      })
+    : [];
+  const reviewQuestionIds = latestAttempt
+    ? getIncorrectQuestionIds(latestAttempt)
+    : [];
+  const examConfig = createExamConfig(mode as ExamMode, {
+    weakDomains,
+    reviewQuestionIds,
+  });
   const timeLimitSeconds = examConfig.timeLimitMinutes * 60;
-  const [timeRemaining, setTimeRemaining] = useState(
-    timeLimitSeconds || 90 * 60,
-  );
+  const [timeRemaining, setTimeRemaining] = useState(timeLimitSeconds);
   const [showResults, setShowResults] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const examTimerRef = useRef<ExamTimer | null>(null);
+  const examStartedAtRef = useRef(0);
   const submitExamRef = useRef<() => void>(() => {});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -117,25 +133,37 @@ export function ExamWorkspace({
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
-      const allQuestions = await loadExamQuestions();
+      let allQuestions: ExamQuestion[];
+      try {
+        allQuestions = await loadExamQuestions();
+      } catch {
+        if (!cancelled) {
+          setLoadError("Unable to load exam questions. Please try again.");
+          setLoading(false);
+        }
+        return;
+      }
       if (cancelled) return;
-      const selectedQuestions = selectQuestionsForMode(
-        allQuestions,
-        examConfig,
-      );
+      const selectedQuestions =
+        mode === "weak-area-focus" && weakDomains.length === 0
+          ? []
+          : selectQuestionsForMode(allQuestions, examConfig);
       setQuestions(selectedQuestions);
+      setLoading(false);
+      if (selectedQuestions.length === 0) return;
 
       // Start exam in store
       startExam("ncp-aii-practice");
+      examStartedAtRef.current = Date.now();
 
-      // Start timer (0 = no limit, use a large value)
-      const duration = timeLimitSeconds || 999 * 60;
-      const timer = new ExamTimer(duration);
-      examTimerRef.current = timer;
-      timer.start(
-        (remaining) => setTimeRemaining(remaining),
-        () => submitExamRef.current(),
-      );
+      if (timeLimitSeconds > 0) {
+        const timer = new ExamTimer(timeLimitSeconds);
+        examTimerRef.current = timer;
+        timer.start(
+          (remaining) => setTimeRemaining(remaining),
+          () => submitExamRef.current(),
+        );
+      }
     };
 
     init();
@@ -170,7 +198,9 @@ export function ExamWorkspace({
     breakdown.mode = mode;
 
     // Update breakdown with actual time spent
-    breakdown.timeSpent = examTimerRef.current?.getTimeElapsed() || 0;
+    breakdown.timeSpent =
+      examTimerRef.current?.getTimeElapsed() ??
+      Math.floor((Date.now() - examStartedAtRef.current) / 1000);
 
     // End exam in store and record attempt
     endExam(breakdown);
@@ -186,11 +216,34 @@ export function ExamWorkspace({
     onClose();
   };
 
-  if (questions.length === 0) {
+  if (loading) {
     return (
       <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
         <div className="bg-gray-900 rounded-lg p-8 text-white">
           <p>Loading exam questions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
+    const message =
+      loadError ??
+      (mode === "review-mode"
+        ? "No incorrect answers from your latest exam are available to review."
+        : mode === "weak-area-focus"
+          ? "No domains below 70% were found in your latest exam."
+          : "No questions are available for this exam.");
+    return (
+      <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
+        <div className="bg-gray-900 rounded-lg p-8 text-white">
+          <p>{message}</p>
+          <button
+            onClick={handleExit}
+            className="mt-4 rounded bg-gray-700 px-4 py-2"
+          >
+            Close
+          </button>
         </div>
       </div>
     );
@@ -676,11 +729,13 @@ export function ExamWorkspace({
           </div>
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <div
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded ${timeRemaining < 300 ? "bg-red-900 text-red-300" : "bg-gray-700 text-gray-300"}`}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded ${timeLimitSeconds > 0 && timeRemaining < 300 ? "bg-red-900 text-red-300" : "bg-gray-700 text-gray-300"}`}
             >
               <Clock className="w-5 h-5" />
               <span className="font-mono font-bold">
-                {formatTime(timeRemaining)}
+                {timeLimitSeconds > 0
+                  ? formatTime(timeRemaining)
+                  : "No time limit"}
               </span>
             </div>
             <button
