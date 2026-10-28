@@ -251,12 +251,24 @@ describe("ExamGauntlet", () => {
       expect(screen.getByText("Finish Exam")).toBeInTheDocument();
     });
 
-    it("should show launch buttons but no mark complete buttons", async () => {
-      await startExam();
+    it("should show launch buttons and expose completion in the detail view", async () => {
+      render(<ExamGauntlet onExit={mockOnExit} />);
+
+      fireEvent.click(screen.getByText("Start Exam"));
+
+      await waitFor(() => {
+        expect(screen.getByText("0 / 5 completed")).toBeInTheDocument();
+      });
 
       const launchButtons = screen.getAllByText("Launch");
       expect(launchButtons.length).toBeGreaterThan(0);
       expect(screen.queryByText("Mark Complete")).not.toBeInTheDocument();
+
+      fireEvent.click(launchButtons[0]);
+
+      await waitFor(() => {
+        expect(screen.getByText("Mark Complete")).toBeInTheDocument();
+      });
     });
 
     it("should show domain badges on scenario cards", async () => {
@@ -499,7 +511,7 @@ describe("ExamGauntlet", () => {
       expect(screen.getAllByText("Launch").length).toBeGreaterThan(0);
     });
 
-    it("should not show mark complete in detail view", async () => {
+    it("should mark a scenario complete and update Gauntlet progress", async () => {
       render(<ExamGauntlet onExit={mockOnExit} />);
 
       fireEvent.click(screen.getByText("Start Exam"));
@@ -515,8 +527,15 @@ describe("ExamGauntlet", () => {
         expect(screen.getByText("Learning Objectives")).toBeInTheDocument();
       });
 
-      expect(screen.queryByText("Mark Complete")).not.toBeInTheDocument();
       expect(screen.getByText("Back to List")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Mark Complete"));
+
+      expect(screen.getByText("1 / 5 completed")).toBeInTheDocument();
+      expect(screen.getByText("Done")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Finish Exam"));
+      expect(screen.getByText("20%")).toBeInTheDocument();
     });
   });
 
