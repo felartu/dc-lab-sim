@@ -198,12 +198,19 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
     switch (type) {
       case "xid-error":
         if (gpuId !== undefined) {
+          const xidCode = parameters?.xid || 79;
           store.addXIDError(nodeId, gpuId, {
-            code: parameters?.xid || 79,
+            code: xidCode,
             timestamp: new Date(),
             description: parameters?.description || "GPU error detected",
             severity: "Critical",
           });
+          if (xidCode === 79) {
+            store.updateGPU(nodeId, gpuId, {
+              utilization: 0,
+              healthStatus: "Critical",
+            });
+          }
         }
         break;
 
@@ -313,12 +320,19 @@ export function applyFaultsToContext(
     switch (type) {
       case "xid-error":
         if (gpuId !== undefined) {
+          const xidCode = parameters?.xid || 79;
           context.addXIDError(nodeId, gpuId, {
-            code: parameters?.xid || 79,
+            code: xidCode,
             timestamp: new Date(),
             description: parameters?.description || "GPU error detected",
             severity: "Critical",
           });
+          if (xidCode === 79) {
+            context.updateGPU(nodeId, gpuId, {
+              utilization: 0,
+              healthStatus: "Critical",
+            });
+          }
         }
         break;
 

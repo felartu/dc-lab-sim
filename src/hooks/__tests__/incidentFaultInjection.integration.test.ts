@@ -106,6 +106,11 @@ describe("live incident fault injection", () => {
           break;
         case "gpu-off-bus-xid79":
           xid(2, 79);
+          expect(gpu(2).healthStatus).toBe("Critical");
+          expect(gpu(2).utilization).toBe(0);
+          expect(node.gpus.filter((g) => g.healthStatus === "OK")).toHaveLength(
+            7,
+          );
           expect(node.slurmState).toBe("drain");
           expect(command("nvidia-smi -L").output).not.toContain("GPU 2:");
           expect(

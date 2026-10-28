@@ -321,6 +321,10 @@ describe("scenarioLoader", () => {
           severity: "Critical",
         }),
       );
+      expect(mockUpdateGPU).toHaveBeenCalledWith("dgx-00", 0, {
+        utilization: 0,
+        healthStatus: "Critical",
+      });
     });
 
     it("applies thermal fault to global store", () => {
