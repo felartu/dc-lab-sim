@@ -196,7 +196,11 @@ export function formatDisplaySupportedClocks(
 export function formatDisplayPageRetirement(gpu: GPU, _node?: DGXNode): string {
   const sbePagesRetired = Math.floor(gpu.eccErrors.aggregated.singleBit / 10);
   const dbePagesRetired = gpu.eccErrors.aggregated.doubleBit;
-  const pendingRetirement = gpu.eccErrors.doubleBit > 0 ? "Yes" : "No";
+  const pendingRetirement =
+    gpu.eccErrors.doubleBit > 0 ||
+    gpu.xidErrors.some((error) => error.code === 92)
+      ? "Yes"
+      : "No";
   let output = `    Retired Pages\n`;
   output += `        Single Bit ECC                    : ${sbePagesRetired}\n`;
   output += `        Double Bit ECC                    : ${dbePagesRetired}\n`;
@@ -240,7 +244,9 @@ export function formatDisplayFBCStats(_gpu: GPU, _node?: DGXNode): string {
 }
 
 export function formatDisplayRowRemapper(gpu: GPU, _node?: DGXNode): string {
-  const rowsRemapped = gpu.eccErrors.aggregated.doubleBit > 0;
+  const rowsRemapped =
+    gpu.eccErrors.aggregated.doubleBit > 0 ||
+    gpu.xidErrors.some((error) => error.code === 92);
   let output = `    Row Remapper\n`;
   output += `        Correctable Error                 : ${rowsRemapped ? "true" : "false"}\n`;
   output += `        Uncorrectable Error               : ${gpu.eccErrors.doubleBit > 0 ? "true" : "false"}\n`;
