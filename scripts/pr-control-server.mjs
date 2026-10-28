@@ -74,6 +74,12 @@ async function stopApp() {
   }, 5000);
   await exited;
   clearTimeout(timeout);
+  // npm can exit before a descendant; ensure its isolated process group is gone.
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
   if (app === child) app = null;
 }
 
