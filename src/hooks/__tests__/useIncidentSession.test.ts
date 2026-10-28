@@ -32,6 +32,7 @@ const {
   mockClear,
   mockApplyFaultsToContext,
   mockRecordIncidentResult,
+  mockSelectNode,
 } = vi.hoisted(() => {
   const mockEventLog = {
     append: vi.fn().mockImplementation((input: Record<string, unknown>) => ({
@@ -124,6 +125,7 @@ const {
   const mockClear = vi.fn();
   const mockApplyFaultsToContext = vi.fn();
   const mockRecordIncidentResult = vi.fn();
+  const mockSelectNode = vi.fn();
 
   return {
     mockEventLog,
@@ -140,6 +142,7 @@ const {
     mockClear,
     mockApplyFaultsToContext,
     mockRecordIncidentResult,
+    mockSelectNode,
   };
 });
 
@@ -153,6 +156,12 @@ vi.mock("@/store/scenarioContext", () => ({
     getInstance: () => mockScenarioContextManager,
   },
   scenarioContextManager: mockScenarioContextManager,
+}));
+
+vi.mock("@/store/simulationStore", () => ({
+  useSimulationStore: Object.assign(vi.fn(), {
+    getState: () => ({ selectNode: mockSelectNode }),
+  }),
 }));
 
 vi.mock("@/simulation/incidentComposer", () => ({
@@ -322,6 +331,7 @@ describe("useIncidentSession", () => {
       difficulty: "beginner",
       domain: 1,
     });
+    expect(mockSelectNode).toHaveBeenCalledWith("dgx-03");
 
     // Faults were applied to the context (primary + red herrings)
     expect(mockApplyFaultsToContext).toHaveBeenCalled();
