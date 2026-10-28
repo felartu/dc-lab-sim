@@ -20,13 +20,24 @@ function setInfiniBandPortDown(
   hcaId: number,
   portNumber: number,
 ): InfiniBandHCA[] {
+  // Device identifiers are not guaranteed to be zero-based across cluster
+  // snapshots. Resolve the requested HCA/port when possible, then fall back to
+  // the first real device so a generic incident fault still reaches hardware.
+  const targetHca = hcas.find((hca) => hca.id === hcaId) ?? hcas[0];
+  if (!targetHca) return hcas;
+
+  const targetPort =
+    targetHca.ports.find((port) => port.portNumber === portNumber) ??
+    targetHca.ports[0];
+  if (!targetPort) return hcas;
+
   return hcas.map((hca) =>
-    hca.id !== hcaId
+    hca.id !== targetHca.id
       ? hca
       : {
           ...hca,
           ports: hca.ports.map((port) =>
-            port.portNumber !== portNumber
+            port.portNumber !== targetPort.portNumber
               ? port
               : {
                   ...port,
