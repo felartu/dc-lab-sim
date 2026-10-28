@@ -176,6 +176,47 @@ describe("applyFaultsToContext", () => {
     expect(context.getMutationCount()).toBe(1);
   });
 
+  it("falls back to the node's first HCA and port when IDs are not zero-based", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].hcas = [
+      {
+        id: 4,
+        devicePath: "/dev/mst/mt4123_pciconf4",
+        caType: "ConnectX-6 HCA",
+        firmwareVersion: "20.35.1012",
+        ports: [
+          {
+            portNumber: 2,
+            state: "Active",
+            physicalState: "LinkUp",
+            rate: 200,
+            lid: 102,
+            guid: "0x000000000002",
+            linkLayer: "InfiniBand",
+            errors: {
+              symbolErrors: 0,
+              linkDowned: 0,
+              portRcvErrors: 0,
+              portXmitDiscards: 0,
+              portXmitWait: 0,
+            },
+          },
+        ],
+      },
+    ];
+    const context = new ScenarioContext("test-nonzero-ids", cluster);
+
+    applyFaultsToContext(
+      [{ nodeId: "dgx-00", type: "ib-link-down", severity: "critical" }],
+      context,
+    );
+
+    const port = context.getNode("dgx-00")?.hcas[0].ports[0];
+    expect(port?.state).toBe("Down");
+    expect(port?.physicalState).toBe("LinkDown");
+    expect(port?.errors.linkDowned).toBe(1);
+  });
+
   it("applies xid-error fault to context", () => {
     const cluster = createTestCluster();
     const context = new ScenarioContext("test", cluster);
