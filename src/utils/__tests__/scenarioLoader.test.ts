@@ -4,6 +4,7 @@ import type { ClusterConfig } from "@/types/hardware";
 import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
 import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
 import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
+import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
 import { parse } from "@/utils/commandParser";
 
 // ── Mock data for the simulation store ────────────────────────────
@@ -765,6 +766,30 @@ describe("scenarioLoader", () => {
         // Return a real ScenarioContext for fault application
         const cluster = createMockCluster();
         const baseNode = cluster.nodes[0];
+        baseNode.hcas = [0, 1].map((id) => ({
+          id,
+          devicePath: `/dev/mst/mt4123_pciconf${id}`,
+          caType: "ConnectX-6 HCA",
+          firmwareVersion: "20.35.1012",
+          ports: [
+            {
+              portNumber: 1,
+              state: "Active" as const,
+              physicalState: "LinkUp" as const,
+              rate: 200 as const,
+              lid: 101 + id,
+              guid: `0x00000000000${id + 1}`,
+              linkLayer: "InfiniBand" as const,
+              errors: {
+                symbolErrors: 0,
+                linkDowned: 0,
+                portRcvErrors: 0,
+                portXmitDiscards: 0,
+                portXmitWait: 0,
+              },
+            },
+          ],
+        }));
         for (let nodeIndex = 1; nodeIndex < 8; nodeIndex++) {
           cluster.nodes.push({
             ...structuredClone(baseNode),
@@ -895,6 +920,45 @@ describe("scenarioLoader", () => {
         },
       );
       expect(gpuList.output).toContain("GPU 5:");
+    });
+
+    it("injects and repairs the two Domain 2 fiber links in the mission sandbox", async () => {
+      const initialized = await initializeScenario("domain2-fiber-optic-fault");
+      expect(initialized).toBe(true);
+      expect(
+        activeContext
+          .getNode("dgx-00")
+          ?.hcas.slice(0, 2)
+          .map((hca) => hca.ports[0].linkWidth),
+      ).toEqual([1, 1]);
+
+      const simulator = new InfiniBandSimulator();
+      const commandContext = {
+        currentNode: "dgx-00",
+        currentPath: "/root",
+        environment: {},
+        history: [],
+        scenarioContext: activeContext,
+      };
+      const degradedOutput = simulator.executeIblinkinfo(
+        parse("iblinkinfo"),
+        commandContext,
+      ).output;
+      expect(degradedOutput.match(/1x, degraded/g)).toHaveLength(2);
+      expect(degradedOutput).toContain("Node: dgx-00 (dgx-00)");
+      expect(degradedOutput).toContain("Node: dgx-01 (dgx-01)");
+
+      const scenario = await loadScenarioFromFile("domain2-fiber-optic-fault");
+      applyFaultsToContext(scenario!.steps[8].autoFaults ?? [], activeContext);
+      expect(
+        activeContext
+          .getNode("dgx-00")
+          ?.hcas.slice(0, 2)
+          .map((hca) => hca.ports[0].linkWidth),
+      ).toEqual([4, 4]);
+      expect(
+        simulator.executeIblinkinfo(parse("iblinkinfo"), commandContext).output,
+      ).not.toContain("1x, degraded");
     });
   });
 });

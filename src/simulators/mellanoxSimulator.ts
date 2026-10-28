@@ -5,10 +5,40 @@ import type {
   SimulatorMetadata,
 } from "@/types/commands";
 import { BaseSimulator } from "./BaseSimulator";
-import type { BlueFieldDPU, InfiniBandHCA } from "@/types/hardware";
+import type { BlueFieldDPU, InfiniBandHCA, InfiniBandPort } from "@/types/hardware";
 
 // Alias for shorter code
 type HCA = InfiniBandHCA;
+
+function getActiveLinkWidth(port: InfiniBandPort): 1 | 2 | 4 {
+  return port.linkWidth ?? 4;
+}
+
+function getEffectivePortRate(port: InfiniBandPort): number {
+  return (port.rate * getActiveLinkWidth(port)) / 4;
+}
+
+function formatEyeDiagram(port: InfiniBandPort): string {
+  const activeWidth = getActiveLinkWidth(port);
+  const lines = ["\nEye Opening Measurement", "=======================", ""];
+
+  for (let lane = 0; lane < 4; lane++) {
+    const healthy = lane < activeWidth;
+    const eyeHeight = healthy ? 125 - lane * 2 : 18 + lane * 2;
+    const eyeWidth = healthy ? 0.85 - lane * 0.01 : 0.12 + lane * 0.01;
+    const grade = healthy ? 98 - lane : 24 + lane;
+    lines.push(
+      `Lane ${lane}:\n  Eye Height: ${eyeHeight} mV (${healthy ? "Good" : "Critical"})\n  Eye Width:  ${eyeWidth.toFixed(2)} UI (${healthy ? "Good" : "Poor"})\n  Grade:      ${grade}/100\n`,
+    );
+  }
+
+  lines.push(
+    activeWidth === 4
+      ? "\x1b[32m✓ All lanes show good signal quality\x1b[0m"
+      : `\x1b[33m⚠ Only ${activeWidth} of 4 lanes trained; inspect the optics and fiber.\x1b[0m`,
+  );
+  return lines.join("\n");
+}
 
 export class MellanoxSimulator extends BaseSimulator {
   private mstStarted: boolean = false;
@@ -408,12 +438,14 @@ export class MellanoxSimulator extends BaseSimulator {
 
     // Show counters
     if (this.hasAnyFlag(parsed, ["c"])) {
+      const activeWidth = getActiveLinkWidth(port);
       let output = "\nOperational Info\n";
       output += "----------------\n";
       output += `State                           : ${port.state}\n`;
       output += `Physical state                  : ${port.physicalState}\n`;
       output += `Speed                           : ${port.rate} (${port.rate}Gb/s)\n`;
-      output += `Width                           : 4x\n`;
+      output += `Width                           : ${activeWidth}x of 4x\n`;
+      output += `Effective bandwidth            : ${getEffectivePortRate(port)}Gb/s\n`;
       output += `FEC                             : RS-FEC - RS(528,514)\n`;
       output += `Loopback Mode                   : No Loopback\n`;
       output += `Auto Negotiation                : ON\n\n`;
@@ -440,27 +472,7 @@ export class MellanoxSimulator extends BaseSimulator {
 
     // Show eye diagram (simulated)
     if (this.hasAnyFlag(parsed, ["show_eye"])) {
-      let output = "\nEye Opening Measurement\n";
-      output += "=======================\n\n";
-      output += "Lane 0:\n";
-      output += "  Eye Height: 125 mV (Good)\n";
-      output += "  Eye Width:  0.85 UI (Good)\n";
-      output += "  Grade:      98/100\n\n";
-      output += "Lane 1:\n";
-      output += "  Eye Height: 122 mV (Good)\n";
-      output += "  Eye Width:  0.83 UI (Good)\n";
-      output += "  Grade:      96/100\n\n";
-      output += "Lane 2:\n";
-      output += "  Eye Height: 120 mV (Good)\n";
-      output += "  Eye Width:  0.82 UI (Good)\n";
-      output += "  Grade:      95/100\n\n";
-      output += "Lane 3:\n";
-      output += "  Eye Height: 123 mV (Good)\n";
-      output += "  Eye Width:  0.84 UI (Good)\n";
-      output += "  Grade:      97/100\n\n";
-      output += "\x1b[32m✓ All lanes show good signal quality\x1b[0m\n";
-
-      return this.createSuccess(output);
+      return this.createSuccess(formatEyeDiagram(port));
     }
 
     // Default: show link status
@@ -470,12 +482,15 @@ export class MellanoxSimulator extends BaseSimulator {
     output += `State                           : ${port.state}\n`;
     output += `Physical state                  : ${port.physicalState}\n`;
     output += `Speed                           : ${port.rate} (${port.rate}Gb/s)\n`;
-    output += `Width                           : 4x\n`;
+    output += `Width                           : ${getActiveLinkWidth(port)}x of 4x\n`;
+    output += `Effective bandwidth            : ${getEffectivePortRate(port)}Gb/s\n`;
     output += `FEC                             : RS-FEC\n`;
     output += `Vendor                          : Mellanox\n`;
     output += `Part Number                     : MCP1650-H001E30\n\n`;
 
-    if (port.state === "Active") {
+    if (getActiveLinkWidth(port) < 4) {
+      output += "\x1b[33m⚠ Link is active at reduced width\x1b[0m\n";
+    } else if (port.state === "Active") {
       output += "\x1b[32m✓ Link is healthy\x1b[0m\n";
     } else {
       output += "\x1b[31m✗ Link is not active\x1b[0m\n";
@@ -509,19 +524,24 @@ export class MellanoxSimulator extends BaseSimulator {
     let output = "\nCable Information\n";
     output += "=================\n\n";
 
-    node.hcas.slice(0, 2).forEach((_hca, idx) => {
+    node.hcas.slice(0, 2).forEach((hca, idx) => {
+      const port = hca.ports[0];
+      const degraded = port ? getActiveLinkWidth(port) < 4 : false;
+      const temperature = degraded && idx === 0 ? 68 : 32;
+      const highBer = degraded && idx === 1;
       output += `Port ${idx + 1}:\n`;
       output += "--------\n";
-      output += `Cable Type:              Passive Copper Cable (DAC)\n`;
-      output += `Length:                  2m\n`;
+      output += `Cable Type:              QSFP-DD Optical Transceiver (Fiber)\n`;
+      output += `Length:                  50m\n`;
       output += `Vendor:                  Mellanox\n`;
       output += `Part Number:             MCP1650-H002E30\n`;
       output += `Serial Number:           MT${(2100000000 + idx).toString()}\n`;
-      output += `Temperature:             32°C\n`;
+      output += `Temperature:             ${temperature}°C${temperature >= 60 ? " (Warning)" : ""}\n`;
       output += `Voltage:                 3.30V\n`;
-      output += `TX Power (Lane 0):       N/A (DAC)\n`;
-      output += `RX Power (Lane 0):       N/A (DAC)\n`;
-      output += `Status:                  \x1b[32mOK\x1b[0m\n\n`;
+      output += `TX Power (Lane 0):       -1.8 dBm\n`;
+      output += `RX Power (Lane 0):       ${degraded ? "-5.6 dBm (Low)" : "-2.0 dBm (Good)"}\n`;
+      if (highBer) output += `Bit Error Rate:          High (Warning)\n`;
+      output += `Status:                  ${degraded ? "\x1b[33mWarning\x1b[0m" : "\x1b[32mOK\x1b[0m"}\n\n`;
     });
 
     return this.createSuccess(output);

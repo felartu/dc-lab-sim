@@ -11,6 +11,8 @@ export type FaultType =
   | "power"
   | "bmc-sensor"
   | "ib-link-down"
+  | "ib-link-degraded"
+  | "ib-link-restored"
   | "nvlink-failure"
   | "gpu-hang"
   | "memory-full"

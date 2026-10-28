@@ -345,6 +345,14 @@ describe('shallowCompareHCA', () => {
       expect(shallowCompareHCA(hca1, hca2)).toBe(false);
     });
 
+    it('should return false when negotiated port width differs', () => {
+      const hca1 = createMockHCA();
+      const hca2 = createMockHCA({
+        ports: [{ ...hca1.ports[0], linkWidth: 1 }],
+      });
+      expect(shallowCompareHCA(hca1, hca2)).toBe(false);
+    });
+
     it('should return false when port symbolErrors differ', () => {
       const hca1 = createMockHCA();
       const hca2 = createMockHCA({

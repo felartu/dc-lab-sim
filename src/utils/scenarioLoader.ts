@@ -53,6 +53,40 @@ function setInfiniBandPortDown(
   );
 }
 
+function setInfiniBandPortWidth(
+  hcas: InfiniBandHCA[],
+  hcaId: number,
+  portNumber: number,
+  linkWidth: 1 | 2 | 4,
+): InfiniBandHCA[] {
+  const targetHca = hcas.find((hca) => hca.id === hcaId) ?? hcas[0];
+  if (!targetHca) return hcas;
+
+  const targetPort =
+    targetHca.ports.find((port) => port.portNumber === portNumber) ??
+    targetHca.ports[0];
+  if (!targetPort) return hcas;
+
+  return hcas.map((hca) =>
+    hca.id !== targetHca.id
+      ? hca
+      : {
+          ...hca,
+          ports: hca.ports.map((port) =>
+            port.portNumber !== targetPort.portNumber
+              ? port
+              : {
+                  ...port,
+                  linkWidth,
+                  ...(linkWidth === 4
+                    ? { state: "Active" as const, physicalState: "LinkUp" as const }
+                    : {}),
+                },
+          ),
+        },
+  );
+}
+
 function getPowerFaultUpdates(
   gpu: GPU | undefined,
   parameters?: Record<string, unknown>,
@@ -273,6 +307,29 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
         break;
       }
 
+      case "ib-link-degraded":
+      case "ib-link-restored": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node) {
+          store.updateHCAs(
+            nodeId,
+            setInfiniBandPortWidth(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+              type === "ib-link-restored"
+                ? 4
+                : parameters?.linkWidth === 2
+                  ? 2
+                  : 1,
+            ),
+          );
+        }
+        break;
+      }
+
       case "gpu-hang":
         if (gpuId !== undefined) {
           store.updateGPU(nodeId, gpuId, {
@@ -407,6 +464,27 @@ export function applyFaultsToContext(
               node.hcas,
               parameters?.hcaId ?? 0,
               parameters?.portNumber ?? 1,
+            ),
+          );
+        }
+        break;
+      }
+
+      case "ib-link-degraded":
+      case "ib-link-restored": {
+        const node = context.getNode(nodeId);
+        if (node) {
+          context.updateHCAs(
+            nodeId,
+            setInfiniBandPortWidth(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+              type === "ib-link-restored"
+                ? 4
+                : parameters?.linkWidth === 2
+                  ? 2
+                  : 1,
             ),
           );
         }

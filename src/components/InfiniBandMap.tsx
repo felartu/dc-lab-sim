@@ -106,6 +106,7 @@ const getLinkColor = (
     0,
   );
 
+  if (ports.some((port) => (port.linkWidth ?? 4) < 4)) return "#EAB308";
   if (totalErrors === 0) return "#10B981"; // Green - healthy
   if (totalErrors < 10) return "#EAB308"; // Yellow - minor errors
   if (totalErrors < 50) return "#F97316"; // Orange - moderate errors
@@ -176,7 +177,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
       node.hcas.flatMap((hca) =>
         hca.ports.map(
           (port) =>
-            `${node.id}:${hca.id}:${port.portNumber}:${port.state}:${port.physicalState}:${port.errors.symbolErrors}:${port.errors.portRcvErrors}:${port.errors.linkDowned}`,
+            `${node.id}:${hca.id}:${port.portNumber}:${port.state}:${port.physicalState}:${port.linkWidth ?? 4}:${port.errors.symbolErrors}:${port.errors.portRcvErrors}:${port.errors.linkDowned}`,
         ),
       ),
     )
@@ -495,13 +496,22 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
           ? getHostRailLinkStatus(hostNode, railIndex)
           : d.status;
 
-        // Collect port info from host (if target is a host)
-        const ports = hostNode
-          ? hostNode.hcas.flatMap((hca) =>
+        const selectedHcas = hostNode
+          ? railIndex !== undefined
+            ? hostNode.hcas[railIndex]
+              ? [hostNode.hcas[railIndex]]
+              : []
+            : hostNode.hcas
+          : [];
+        // Show only the HCA connected to the clicked fabric rail.
+        const ports = selectedHcas.flatMap((hca) =>
               hca.ports.map((p) => ({
+                hcaId: hca.id,
                 portNumber: p.portNumber,
                 state: p.state,
                 rate: p.rate,
+                linkWidth: p.linkWidth ?? 4,
+                effectiveRate: (p.rate * (p.linkWidth ?? 4)) / 4,
                 errors: {
                   symbolErrors: p.errors.symbolErrors,
                   linkDowned: p.errors.linkDowned,
@@ -509,8 +519,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
                   portXmitDiscards: p.errors.portXmitDiscards,
                 },
               })),
-            )
-          : [];
+            );
 
         const totalErrors = ports.reduce(
           (sum, p) =>
@@ -520,6 +529,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
             p.errors.linkDowned,
           0,
         );
+        const hasDegradedWidth = ports.some((port) => port.linkWidth < 4);
 
         setSelectedNode({
           type: "iblink",
@@ -528,6 +538,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
             targetLabel: d.target.label,
             speed: d.speed,
             status,
+            hasDegradedWidth,
             totalErrors,
             ports,
           },

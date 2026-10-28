@@ -239,6 +239,8 @@ function App() {
     "memory-full",
     "driver-error",
     "pcie-error",
+    "ib-link-degraded",
+    "ib-link-restored",
     "allocate-job",
     "set-slurm-state",
     "add-node",

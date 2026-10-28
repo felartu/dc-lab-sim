@@ -217,6 +217,90 @@ describe("applyFaultsToContext", () => {
     expect(port?.errors.linkDowned).toBe(1);
   });
 
+  it("injects and restores a reduced-width InfiniBand link", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].hcas = [
+      {
+        id: 0,
+        devicePath: "/dev/mst/mt4123_pciconf0",
+        caType: "ConnectX-6 HCA",
+        firmwareVersion: "20.35.1012",
+        ports: [
+          {
+            portNumber: 1,
+            state: "Active",
+            physicalState: "LinkUp",
+            rate: 200,
+            lid: 101,
+            guid: "0x000000000001",
+            linkLayer: "InfiniBand",
+            errors: {
+              symbolErrors: 0,
+              linkDowned: 0,
+              portRcvErrors: 0,
+              portXmitDiscards: 0,
+              portXmitWait: 0,
+            },
+          },
+        ],
+      },
+    ];
+    const context = new ScenarioContext("fiber-fault", cluster);
+    const simulator = new InfiniBandSimulator();
+    const commandContext = {
+      currentNode: "dgx-00",
+      currentPath: "/root",
+      environment: {},
+      history: [],
+      scenarioContext: context,
+    };
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          type: "ib-link-degraded",
+          severity: "warning",
+          parameters: { hcaId: 0, portNumber: 1, linkWidth: 1 },
+        },
+      ],
+      context,
+    );
+
+    expect(context.getNode("dgx-00")?.hcas[0].ports[0].linkWidth).toBe(1);
+    expect(simulator.executeIbstat(parse("ibstat"), commandContext).output).toContain(
+      "Effective bandwidth: 50 Gb/s",
+    );
+    const degradedLinks = simulator.executeIblinkinfo(
+      parse("iblinkinfo"),
+      commandContext,
+    ).output;
+    expect(degradedLinks).toContain("50 Gb/s effective");
+    expect(degradedLinks).toContain("1x, degraded");
+    expect(
+      simulator.executeIbWriteBw(parse("ib_write_bw"), commandContext).output,
+    ).toContain("Write bandwidth: 48.50 Gb/s (200 Gb/s HDR link)");
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          type: "ib-link-restored",
+          severity: "warning",
+          parameters: { hcaId: 0, portNumber: 1 },
+        },
+      ],
+      context,
+    );
+
+    const restoredPort = context.getNode("dgx-00")?.hcas[0].ports[0];
+    expect(restoredPort?.linkWidth).toBe(4);
+    expect(restoredPort?.state).toBe("Active");
+    expect(simulator.executeIbstat(parse("ibstat"), commandContext).output).toContain(
+      "Effective bandwidth: 200 Gb/s",
+    );
+  });
+
   it("applies xid-error fault to context", () => {
     const cluster = createTestCluster();
     const context = new ScenarioContext("test", cluster);

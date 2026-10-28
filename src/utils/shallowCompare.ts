@@ -60,6 +60,7 @@ function shallowComparePort(a: InfiniBandPort, b: InfiniBandPort): boolean {
   if (a.state !== b.state) return false;
   if (a.physicalState !== b.physicalState) return false;
   if (a.rate !== b.rate) return false;
+  if (a.linkWidth !== b.linkWidth) return false;
 
   // Compare error counters
   if (a.errors.symbolErrors !== b.errors.symbolErrors) return false;

@@ -19,6 +19,7 @@ interface Step {
 interface Scenario {
   id: string;
   steps: Step[];
+  faults?: Fault[];
   narrative?: { hook: string; setting: string; resolution: string };
 }
 
@@ -33,6 +34,14 @@ describe("scenario node references stay within the live topology", () => {
     const offenders: string[] = [];
     for (const s of scenarios) {
       const valid = new Set(BASE_NODES);
+      for (const f of s.faults ?? []) {
+        if (f.type === "add-node") {
+          valid.add(f.nodeId);
+          continue;
+        }
+        if (!valid.has(f.nodeId))
+          offenders.push(`${s.id}/scenario: ${f.type} on ${f.nodeId}`);
+      }
       for (const step of s.steps) {
         for (const f of step.autoFaults ?? []) {
           if (f.type === "add-node") {
@@ -97,6 +106,42 @@ describe("specific fault↔narrative consistency", () => {
     const m = step4!.situation.match(/(\d+)\s+ECC\s+single-bit/i);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(eccFault!.parameters!.singleBit);
+  });
+
+  it("domain2-fiber-optic-fault injects a reduced-width link and restores it at repair", () => {
+    const s = scenarios.find((x) => x.id === "domain2-fiber-optic-fault");
+    expect(s, "domain2-fiber-optic-fault not found in scenarios").toBeDefined();
+    const degradedFaults = s!.faults?.filter(
+      (fault) => fault.type === "ib-link-degraded",
+    );
+    expect(degradedFaults).toHaveLength(2);
+    expect(degradedFaults?.map((fault) => fault.parameters?.hcaId)).toEqual([
+      0,
+      1,
+    ]);
+
+    const repairStep = s!.steps.find((step) => step.id === "step-9");
+    const repairedFaults = repairStep?.autoFaults?.filter(
+      (fault) => fault.type === "ib-link-restored",
+    );
+    expect(repairedFaults).toHaveLength(2);
+    expect(repairedFaults?.map((fault) => fault.parameters?.hcaId)).toEqual([
+      0,
+      1,
+    ]);
+
+    const scenarioText = [
+      s!.narrative?.hook,
+      s!.narrative?.setting,
+      s!.narrative?.resolution,
+      ...s!.steps.flatMap((step) => [
+        step.situation,
+        step.task,
+        ...(step.hints ?? []),
+      ]),
+    ].join(" ");
+    expect(scenarioText).not.toMatch(/100 Gb\/s instead of 400 Gb\/s/i);
+    expect(scenarioText).toMatch(/{{NET_RATE_GBS}}/);
   });
 });
 

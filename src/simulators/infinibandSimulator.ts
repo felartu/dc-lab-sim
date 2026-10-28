@@ -1,5 +1,6 @@
 import type { CommandResult, CommandContext } from "@/types/commands";
 import type { ParsedCommand } from "@/utils/commandParser";
+import type { InfiniBandPort } from "@/types/hardware";
 import {
   BaseSimulator,
   type SimulatorMetadata,
@@ -21,6 +22,14 @@ export function getIBStandardName(rateGbps: number): string {
   if (rateGbps >= 100) return "EDR";
   if (rateGbps >= 56) return "FDR";
   return "QDR";
+}
+
+function getActiveLinkWidth(port: InfiniBandPort): 1 | 2 | 4 {
+  return port.linkWidth ?? 4;
+}
+
+function getEffectivePortRate(port: InfiniBandPort): number {
+  return (port.rate * getActiveLinkWidth(port)) / 4;
 }
 
 /**
@@ -93,6 +102,9 @@ export class InfiniBandSimulator extends BaseSimulator {
         output += `\t\tState: ${port.state}\n`;
         output += `\t\tPhysical state: ${port.physicalState}\n`;
         output += `\t\tRate: ${port.rate} Gb/s (${getIBStandardName(port.rate)})\n`;
+        output += `\t\tLink width: ${getActiveLinkWidth(port)}x of 4x`;
+        if (getActiveLinkWidth(port) < 4) output += " (degraded)";
+        output += `\n\t\tEffective bandwidth: ${getEffectivePortRate(port)} Gb/s\n`;
         output += `\t\tBase lid: ${port.lid}\n`;
         output += `\t\tLMC: 0\n`;
         output += `\t\tSM lid: 1\n`;
@@ -206,8 +218,10 @@ Options:
       return this.createSuccess("iblinkinfo 5.9-0");
     }
 
-    const node = this.getNode(context);
-    if (!node || node.hcas.length === 0) {
+    const nodes = this.resolveAllNodes(context).filter(
+      (candidate) => candidate.hcas.length > 0,
+    );
+    if (nodes.length === 0) {
       return this.createError("Error: No HCA found");
     }
 
@@ -215,18 +229,23 @@ Options:
 
     let output = `InfiniBand Link Information:\n\n`;
 
-    node.hcas.forEach((hca) => {
-      hca.ports.forEach((port) => {
-        output += `CA: ${hca.caType}\n`;
-        output += `      ${port.guid}\n`;
-        output += `         port ${port.portNumber} lid ${port.lid} lmc 0 ${port.state} ${port.rate} Gb/s ${getIBStandardName(port.rate)} (${port.linkLayer})\n`;
+    nodes.forEach((node) => {
+      output += `Node: ${node.hostname} (${node.id})\n`;
+      node.hcas.forEach((hca) => {
+        hca.ports.forEach((port) => {
+          output += `CA: ${hca.caType}\n`;
+          output += `      ${port.guid}\n`;
+          const linkWidth = getActiveLinkWidth(port);
+          const degraded = linkWidth < 4 ? ", degraded" : "";
+          output += `         port ${port.portNumber} lid ${port.lid} lmc 0 ${port.state} ${getEffectivePortRate(port)} Gb/s effective (${port.rate} Gb/s ${getIBStandardName(port.rate)}, ${linkWidth}x${degraded}) (${port.linkLayer})\n`;
 
-        if (verbose) {
-          output += `         Link errors:\n`;
-          output += `           Symbol errors:      ${port.errors.symbolErrors}\n`;
-          output += `           Link downed:        ${port.errors.linkDowned}\n`;
-          output += `           Receive errors:     ${port.errors.portRcvErrors}\n`;
-        }
+          if (verbose) {
+            output += `         Link errors:\n`;
+            output += `           Symbol errors:      ${port.errors.symbolErrors}\n`;
+            output += `           Link downed:        ${port.errors.linkDowned}\n`;
+            output += `           Receive errors:     ${port.errors.portRcvErrors}\n`;
+          }
+        });
       });
     });
 
@@ -787,8 +806,10 @@ Options:
       return this.createError("Error: No HCA found");
     }
 
-    const portRate = node.hcas[0].ports[0].rate;
-    const maxBwGbps = portRate * 0.97; // ~97% of line rate
+    const port = node.hcas[0].ports[0];
+    const portRate = port.rate;
+    const effectivePortRate = getEffectivePortRate(port);
+    const maxBwGbps = effectivePortRate * 0.97; // ~97% of negotiated bandwidth
     const maxBwMBps = ((maxBwGbps * 1000) / 8).toFixed(2); // Convert Gb/s to MB/s
 
     let output = `************************************\n`;
@@ -835,8 +856,10 @@ Options:
       return this.createError("Error: No HCA found");
     }
 
-    const portRate = node.hcas[0].ports[0].rate;
-    const maxBwGbps = portRate * 0.95; // ~95% of line rate for read
+    const port = node.hcas[0].ports[0];
+    const portRate = port.rate;
+    const effectivePortRate = getEffectivePortRate(port);
+    const maxBwGbps = effectivePortRate * 0.95; // ~95% of negotiated bandwidth for read
     const maxBwMBps = ((maxBwGbps * 1000) / 8).toFixed(2);
 
     let output = `************************************\n`;
@@ -942,6 +965,7 @@ Options:
       output += `SMLid:....................1\n`;
       output += `LMC:......................0\n`;
       output += `LinkWidthEnabled:.........4X\n`;
+      output += `LinkWidthActive:..........${getActiveLinkWidth(port)}X\n`;
       output += `LinkSpeedActive:..........${getIBStandardName(port.rate)}\n`;
       output += `LinkState:................${port.state}\n`;
       output += `PhysLinkState:............${port.physicalState}\n`;
@@ -1300,8 +1324,10 @@ Options:
       return this.createError("Error: No HCA found");
     }
 
-    const portRate = node.hcas[0].ports[0]?.rate || 400;
-    const maxBwGbps = portRate * efficiencyFactor;
+    const port = node.hcas[0].ports[0];
+    const portRate = port?.rate || 400;
+    const effectivePortRate = port ? getEffectivePortRate(port) : portRate;
+    const maxBwGbps = effectivePortRate * efficiencyFactor;
     const maxBwMBps = ((maxBwGbps * 1000) / 8).toFixed(2);
     const avgBwMBps = (parseFloat(maxBwMBps) * 0.96).toFixed(2);
     const msgRate = (parseFloat(maxBwMBps) / 65.536).toFixed(2);

@@ -1794,10 +1794,24 @@
       "domain": 2,
       "title": "The Fiber Optic Fault",
       "narrative": {
-        "hook": "A newly racked DGX node's InfiniBand ports refuse to train at full {{NET_PROTOCOL}} {{NET_RATE_GBS}} Gb/s speed.",
-        "setting": "The datacenter team just installed a new {{SYSTEM_NAME}} node. Cabling is complete, but the fabric manager reports degraded link widths on two ports.",
-        "resolution": "You traced the issue to a faulty QSFP-DD transceiver with dirty fiber connectors, confirmed via mlxlink eye diagram analysis and mlxcables diagnostics. After reseating and cleaning the optics, all ports trained at full 4x {{NET_PROTOCOL}} speed."
+        "hook": "A newly racked DGX node's InfiniBand links refuse to train at full {{NET_PROTOCOL}} {{NET_RATE_GBS}} Gb/s speed.",
+        "setting": "The datacenter team just installed a new {{SYSTEM_NAME}} node. Cabling is complete, but the fabric manager reports degraded link widths on two HCA links.",
+        "resolution": "You traced the issue to a faulty QSFP-DD transceiver with dirty fiber connectors, confirmed via mlxlink eye diagram analysis and mlxcables diagnostics. After reseating and cleaning the optics, both affected links trained at full 4x {{NET_PROTOCOL}} speed."
       },
+      "faults": [
+        {
+          "nodeId": "dgx-00",
+          "type": "ib-link-degraded",
+          "severity": "warning",
+          "parameters": { "hcaId": 0, "portNumber": 1, "linkWidth": 1 }
+        },
+        {
+          "nodeId": "dgx-00",
+          "type": "ib-link-degraded",
+          "severity": "warning",
+          "parameters": { "hcaId": 1, "portNumber": 1, "linkWidth": 1 }
+        }
+      ],
       "commandFamilies": ["infiniband-tools", "gpu-monitoring", "bmc-hardware"],
       "estimatedMinutes": 15,
       "difficulty": "beginner",
@@ -1812,10 +1826,10 @@
           "validation": {
             "type": "none"
           },
-          "conceptContent": "InfiniBand is a high-bandwidth, low-latency network fabric used in GPU clusters for inter-node communication.\n\n{{SYSTEM_NAME}} uses {{NET_PROTOCOL}} (Next Data Rate) InfiniBand:\n- 400 Gb/s per port (4x lanes at 100 Gb/s each)\n- Sub-microsecond latency\n- RDMA (Remote Direct Memory Access) for GPU-to-GPU transfers\n\nKey concepts:\n- Link Width: Number of lanes (1x, 4x). Full speed requires 4x.\n- Link Rate: Speed per lane. {{NET_PROTOCOL}} = 100 Gb/s per lane.\n- HCA: Host Channel Adapter — the InfiniBand NIC in each node.\n- Transceiver: QSFP-DD module that converts electrical signals to optical.\n\nDegraded link width (1x instead of 4x) usually points to a cable or transceiver issue.",
+          "conceptContent": "InfiniBand is a high-bandwidth, low-latency network fabric used in GPU clusters for inter-node communication.\n\n{{SYSTEM_NAME}} uses {{NET_PROTOCOL}} InfiniBand with a full-width per-port rate of {{NET_RATE_GBS}} Gb/s. The link uses four lanes at full width; a 1x link carries roughly one-quarter of the full-width bandwidth.\n\nOther key concepts:\n- Link Width: Number of active lanes (1x, 2x, or 4x). Full speed requires 4x.\n- HCA: Host Channel Adapter — the InfiniBand NIC in each node.\n- Transceiver: QSFP-DD module that converts electrical signals to optical.\n- RDMA (Remote Direct Memory Access) enables GPU-to-GPU transfers with sub-microsecond fabric latency.\n\nA degraded link width usually points to a cable or transceiver issue.",
           "tips": [
             "ibstat is the first command to check port status and link speed",
-            "{{NET_PROTOCOL}} at 1x width runs at only 100 Gb/s instead of 400 Gb/s — a 75% bandwidth loss"
+            "A 1x link width carries roughly one-quarter of the full-width {{NET_RATE_GBS}} Gb/s bandwidth"
           ]
         },
         {
@@ -1836,13 +1850,13 @@
         },
         {
           "id": "step-3",
-          "situation": "The new {{SYSTEM_NAME}} node has been racked and cabled. The network team says two InfiniBand ports are showing reduced bandwidth.",
-          "task": "Start by checking the InfiniBand HCA port status to see which ports are active and their link rates.",
+          "situation": "The new {{SYSTEM_NAME}} node has been racked and cabled. The network team says two InfiniBand links are showing reduced bandwidth.",
+          "task": "Start by checking HCA port status to identify which links have reduced active width.",
           "expectedCommands": ["ibstat"],
           "hints": [
             "ibstat shows HCA port status",
-            "Look at the 'Rate' field for each port",
-            "{{NET_PROTOCOL}} should show {{NET_RATE_GBS}} Gb/s"
+            "Check both the Rate and Link width fields",
+            "A 1x width is degraded even when the nominal {{NET_PROTOCOL}} rate is shown"
           ],
           "validation": {
             "type": "command",
@@ -1852,8 +1866,8 @@
         },
         {
           "id": "step-4",
-          "situation": "ibstat shows ports 1 and 2 are Active but at only 100 Gb/s instead of 400 Gb/s. The ports are training at reduced width (1x instead of 4x).",
-          "task": "Check the fabric-wide link information to see how these ports appear to the rest of the network.",
+          "situation": "ibstat shows two HCA links are Active at {{NET_RATE_GBS}} Gb/s {{NET_PROTOCOL}}, but only at 1x width instead of 4x. Each carries roughly one-quarter of full-width bandwidth.",
+          "task": "Check the fabric-wide link information to confirm both degraded links.",
           "expectedCommands": ["iblinkinfo"],
           "hints": [
             "iblinkinfo shows all fabric links",
@@ -1879,8 +1893,8 @@
         },
         {
           "id": "step-5",
-          "situation": "iblinkinfo confirms two links on the new node are at 1x width. All other nodes are at 4x. The problem is isolated to this node's ports.",
-          "task": "Use mlxcables to inspect the transceiver module information on the affected ports.",
+          "situation": "iblinkinfo confirms two links on the new node are at 1x width. All other links are at 4x. The problem is isolated to this node's transceivers or cabling.",
+          "task": "Use mlxcables to inspect both transceiver modules on the affected links.",
           "expectedCommands": ["mlxcables"],
           "hints": [
             "mlxcables shows cable and transceiver details",
@@ -1895,12 +1909,12 @@
         },
         {
           "id": "step-6",
-          "situation": "mlxcables shows the QSFP-DD transceivers are installed, but one reports elevated temperature and the other shows a 'high bit error rate' flag.",
+          "situation": "mlxcables shows both QSFP-DD transceivers are installed; one reports elevated temperature and the other a high bit error rate.",
           "task": "Run mlxlink to check the physical signal quality and eye diagram metrics on the degraded port.",
-          "expectedCommands": ["mlxlink -d mlx5_0 -p 1 -c"],
+          "expectedCommands": ["mlxlink -d mlx5_0 -p 1 --show_eye"],
           "hints": [
             "mlxlink -d <device> -p <port> shows link details",
-            "Add -c for cable/eye info",
+            "Use --show_eye to inspect eye diagram metrics",
             "Look at signal-to-noise ratio"
           ],
           "validation": {
@@ -1922,7 +1936,7 @@
         },
         {
           "id": "step-7",
-          "situation": "mlxlink shows the eye height is critically low on lanes 2 and 3, indicating poor signal quality on those fiber strands.",
+          "situation": "mlxlink shows critically low eye height on three lanes, so only one lane can train reliably.",
           "task": "Check the PCIe connectivity to make sure the HCA itself is healthy and properly seated.",
           "expectedCommands": ["lspci | grep Mellanox"],
           "hints": [
@@ -1938,7 +1952,7 @@
         },
         {
           "id": "step-8",
-          "situation": "lspci confirms the ConnectX-7 HCA is properly seated at PCIe Gen5 x16. The HCA hardware is fine — the problem is definitely in the optics or cabling.",
+          "situation": "lspci confirms the ConnectX HCA is properly seated. The HCA hardware is fine — the problem is in the optics or cabling.",
           "task": "Check the BMC sensors to see if the node's ambient temperature could be affecting the transceivers.",
           "expectedCommands": ["sensors"],
           "hints": [
@@ -1955,12 +1969,26 @@
         {
           "id": "step-9",
           "situation": "Temperatures are within normal range. The issue is isolated to the transceiver optics. The fiber connectors likely got contaminated during installation.",
-          "task": "After cleaning the fiber connectors and reseating the transceivers, verify the ports have come up at full speed.",
+          "task": "After cleaning the fiber connectors and reseating both transceivers, verify the links have retrained at full width.",
           "expectedCommands": ["ibstat"],
+          "autoFaults": [
+            {
+              "nodeId": "dgx-00",
+              "type": "ib-link-restored",
+              "severity": "warning",
+              "parameters": { "hcaId": 0, "portNumber": 1 }
+            },
+            {
+              "nodeId": "dgx-00",
+              "type": "ib-link-restored",
+              "severity": "warning",
+              "parameters": { "hcaId": 1, "portNumber": 1 }
+            }
+          ],
           "hints": [
             "ibstat to re-check port rates",
             "Should now show {{NET_RATE_GBS}} Gb/s",
-            "Both ports should be 4x width"
+            "Both affected links should be 4x width"
           ],
           "validation": {
             "type": "command",
@@ -1970,7 +1998,7 @@
         },
         {
           "id": "step-10",
-          "situation": "Both ports now show {{NET_RATE_GBS}} Gb/s at full 4x width. The fiber cleaning resolved the issue.",
+          "situation": "Both links now show {{NET_RATE_GBS}} Gb/s at full 4x width. The fiber cleaning resolved the issue.",
           "task": "Run a final iblinkinfo to confirm the node is fully integrated into the fabric at full bandwidth.",
           "expectedCommands": ["iblinkinfo"],
           "hints": [
