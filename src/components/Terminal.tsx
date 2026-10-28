@@ -754,6 +754,7 @@ export const Terminal: React.FC<TerminalProps> = ({
         "hostnamectl",
         "timedatectl",
         "lsmod",
+        "dkms",
         "modinfo",
         "top",
         "ps",

@@ -359,7 +359,20 @@ Options:
     }
 
     output += `-I- Fabric health check completed\n`;
-    output += `-I- No errors found\n`;
+    const downPorts = node.hcas.flatMap((hca) =>
+      hca.ports
+        .filter(
+          (port) => port.state !== "Active" || port.physicalState !== "LinkUp",
+        )
+        .map((port) => ({ hca, port })),
+    );
+    if (downPorts.length === 0) {
+      output += `-I- No errors found\n`;
+    } else {
+      for (const { hca, port } of downPorts) {
+        output += `-E- ${hca.caType} port ${port.portNumber}: ${port.state} (${port.physicalState})\n`;
+      }
+    }
     output += `-I- See report in /tmp/ibdiagnet2\n`;
 
     return this.createSuccess(output);

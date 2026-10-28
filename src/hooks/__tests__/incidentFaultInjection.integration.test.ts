@@ -2,6 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
 import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
+import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
+import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
 import { useIncidentSession } from "@/hooks/useIncidentSession";
 import { parse } from "@/utils/commandParser";
 import { scenarioContextManager } from "@/store/scenarioContext";
@@ -115,6 +117,23 @@ describe("live incident fault injection", () => {
           break;
         case "infiniband-link-down":
           expect(node.hcas[0].ports[0].state).toBe("Down");
+          {
+            const ib = new InfiniBandSimulator();
+            const ctx = {
+              currentNode: nodeId!,
+              currentPath: "/root",
+              environment: {},
+              history: [],
+              cluster: context.getCluster(),
+              scenarioContext: context,
+            };
+            const diagnosis = ib.executeIbdiagnet(parse("ibdiagnet"), ctx);
+            expect(diagnosis.output).toContain("Down (LinkDown)");
+            expect(diagnosis.output).not.toContain("No errors found");
+            expect(
+              ib.executeIblinkinfo(parse("iblinkinfo"), ctx).output,
+            ).toContain(" Down ");
+          }
           break;
         case "combined-nvlink-thermal":
           for (const i of [3, 4])
@@ -129,6 +148,29 @@ describe("live incident fault injection", () => {
             "inactive",
           );
           expect(command("nvidia-smi").exitCode).not.toBe(0);
+          {
+            const basic = new BasicSystemSimulator();
+            const ctx = {
+              currentNode: nodeId!,
+              currentPath: "/root",
+              environment: {},
+              history: [],
+              cluster: context.getCluster(),
+              scenarioContext: context,
+            };
+            expect(basic.execute(parse("lsmod"), ctx).output).not.toMatch(
+              /nvidia/i,
+            );
+            expect(basic.execute(parse("uname -r"), ctx).output).toContain(
+              "5.15.0-97-generic",
+            );
+            expect(basic.execute(parse("dkms status"), ctx).output).toContain(
+              "build failed",
+            );
+            expect(
+              basic.execute(parse("dmesg | grep -i nvidia"), ctx).output,
+            ).toContain("DKMS build failed");
+          }
           break;
       }
       unmount();

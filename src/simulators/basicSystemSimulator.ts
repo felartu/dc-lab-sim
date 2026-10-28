@@ -113,6 +113,12 @@ export class BasicSystemSimulator extends BaseSimulator {
           examples: ["lsmod", "lsmod | grep nvidia"],
         },
         {
+          name: "dkms",
+          description: "Show kernel module build status",
+          usage: "dkms status",
+          examples: ["dkms status"],
+        },
+        {
           name: "modinfo",
           description: "Show information about a Linux kernel module",
           usage: "modinfo <module>",
@@ -227,6 +233,8 @@ export class BasicSystemSimulator extends BaseSimulator {
         return this.handleTimedatectl(parsed, context);
       case "lsmod":
         return this.handleLsmod(parsed, context);
+      case "dkms":
+        return this.handleDkms(parsed, context);
       case "modinfo":
         return this.handleModinfo(parsed, context);
       case "top":
@@ -639,6 +647,12 @@ Available types:
 
     // Only check current node's GPUs for XID errors
     const currentNode = this.resolveNode(context);
+    const driverUnavailable =
+      !!currentNode &&
+      context.scenarioContext?.getServiceState(
+        currentNode.id,
+        "nvidia-driver",
+      ) === "inactive";
 
     // Generate timestamp formatter
     const formatTimestamp = (seconds: number): string => {
@@ -659,6 +673,11 @@ Available types:
     };
 
     if (currentNode) {
+      if (driverUnavailable) {
+        xidMessages.push(
+          `${formatTimestamp(2.456789)} nvidia: kernel module unavailable for 5.15.0-97-generic; DKMS build failed`,
+        );
+      }
       currentNode.gpus.forEach((gpu) => {
         if (gpu.xidErrors && gpu.xidErrors.length > 0) {
           gpu.xidErrors.forEach((error) => {
@@ -792,7 +811,16 @@ ${formatTimestamp(3.789012)} ACPI Warning: SystemIO range conflicts with OpRegio
         bootMessages.push(...xidMessages);
       }
 
-      output = bootMessages.join("\n");
+      output = (
+        driverUnavailable
+          ? bootMessages.filter(
+              (line) =>
+                !/NVRM: loading|nvidia-nvlink|nvidia-uvm|RmInitAdapter|All 8 GPUs detected/.test(
+                  line,
+                ),
+            )
+          : bootMessages
+      ).join("\n");
     }
 
     return this.createSuccess(output);
@@ -1013,7 +1041,7 @@ UTC`;
    */
   private handleLsmod(
     parsed: ParsedCommand,
-    _context: CommandContext,
+    context: CommandContext,
   ): CommandResult {
     const rawCommand = parsed.raw || "";
     const grepNvidia =
@@ -1102,13 +1130,28 @@ UTC`;
       },
     ];
 
-    let filteredModules = modules;
+    const node = this.resolveNode(context);
+    const driverUnavailable =
+      !!node &&
+      context.scenarioContext?.getServiceState(node.id, "nvidia-driver") ===
+        "inactive";
+    const availableModules = driverUnavailable
+      ? modules
+          .filter((m) => !m.name.includes("nvidia") && m.name !== "nv_peer_mem")
+          .map((m) => ({
+            ...m,
+            dependencies: m.dependencies.filter(
+              (dep) => !dep.includes("nvidia") && dep !== "nv_peer_mem",
+            ),
+          }))
+      : modules;
+    let filteredModules = availableModules;
     if (grepNvidia) {
-      filteredModules = modules.filter(
+      filteredModules = availableModules.filter(
         (m) => m.name.includes("nvidia") || m.name.includes("nv_peer"),
       );
     } else if (grepIb) {
-      filteredModules = modules.filter(
+      filteredModules = availableModules.filter(
         (m) =>
           m.name.includes("ib_") ||
           m.name.includes("mlx") ||
@@ -1123,6 +1166,24 @@ UTC`;
     });
 
     return this.createSuccess(output);
+  }
+
+  private handleDkms(
+    parsed: ParsedCommand,
+    context: CommandContext,
+  ): CommandResult {
+    if (!parsed.raw.trim().match(/^dkms\s+status\s*$/))
+      return this.createError("Usage: dkms status");
+    const node = this.resolveNode(context);
+    const unavailable =
+      !!node &&
+      context.scenarioContext?.getServiceState(node.id, "nvidia-driver") ===
+        "inactive";
+    return this.createSuccess(
+      unavailable
+        ? "nvidia/535.129.03, 5.15.0-91-generic, x86_64: installed\nnvidia/535.129.03, 5.15.0-97-generic, x86_64: added (build failed)\n"
+        : "nvidia/535.129.03, 5.15.0-91-generic, x86_64: installed\n",
+    );
   }
 
   /**
@@ -1969,10 +2030,17 @@ Options:
     const os = this.hasAnyFlag(parsed, ["o"]);
 
     const hostname = context.currentNode || "dgx-00";
+    const node = this.resolveNode(context);
+    const release =
+      node &&
+      context.scenarioContext?.getServiceState(node.id, "nvidia-driver") ===
+        "inactive"
+        ? "5.15.0-97-generic"
+        : "5.15.0-91-generic";
 
     if (all) {
       return this.createSuccess(
-        `Linux ${hostname} 5.15.0-91-generic #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`,
+        `Linux ${hostname} ${release} #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`,
       );
     }
 
@@ -1994,7 +2062,7 @@ Options:
       parts.push(hostname);
     }
     if (kernelRelease) {
-      parts.push("5.15.0-91-generic");
+      parts.push(release);
     }
     if (kernelVersion) {
       parts.push("#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023");
