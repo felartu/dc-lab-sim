@@ -470,6 +470,7 @@ function App() {
         {showExamWorkspace && (
           <ExamWorkspace
             mode={examMode}
+            onReviewLabs={() => setCurrentView("labs")}
             onClose={() => {
               setShowExamWorkspace(false);
               setExamMode(undefined);
@@ -547,6 +548,8 @@ function App() {
               onStartExam={(mode) => {
                 setShowStudyDashboard(false);
                 if (mode === "full-practice" || mode === "quick-quiz") {
+                  setExamMode(mode);
+                  setCurrentView("simulator");
                   setShowExamWorkspace(true);
                 }
               }}

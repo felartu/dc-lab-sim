@@ -286,6 +286,20 @@ describe("ExamWorkspace", () => {
     vi.mocked(createExamConfig).mockReturnValue(config);
   });
 
+  it("opens the labs view when Review Labs is selected from results", async () => {
+    const onReviewLabs = vi.fn();
+    const view = await renderWithQuestions(onClose);
+    mockActiveExam!.breakdown = vi.mocked(calculateExamScore)([], {});
+    view.rerender(
+      <ExamWorkspace onClose={onClose} onReviewLabs={onReviewLabs} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    fireEvent.click(screen.getByRole("button", { name: /submit exam/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Labs" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onReviewLabs).toHaveBeenCalled();
+  });
+
   it("submits the current exam when the timer expires and stops the timer on unmount", async () => {
     vi.mocked(loadExamQuestions).mockResolvedValue(mockQuestions);
     vi.mocked(selectQuestionsForMode).mockReturnValue(mockQuestions);

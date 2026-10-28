@@ -23,6 +23,7 @@ import {
 
 interface ExamWorkspaceProps {
   onClose: () => void;
+  onReviewLabs?: () => void;
   mode?: string;
 }
 
@@ -78,6 +79,7 @@ function getCommandRecommendations(domainName: string): string[] {
 
 export function ExamWorkspace({
   onClose,
+  onReviewLabs,
   mode = "full-practice",
 }: ExamWorkspaceProps) {
   const {
@@ -429,7 +431,7 @@ export function ExamWorkspace({
               <button
                 onClick={() => {
                   handleExit();
-                  // Could restart exam here
+                  onReviewLabs?.();
                 }}
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded font-semibold transition-colors"
               >
