@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
+import http from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 
 const controller = fileURLToPath(
@@ -82,6 +83,8 @@ test("controls only its child, securely syncs a clean PR branch and rejects unsa
       PATH: `${bin}${delimiter}${process.env.PATH}`,
       PR_CONTROL_TOKEN: token,
       PR_CONTROL_PORT: String(controlPort),
+      PR_CONTROL_BIND_HOST: "0.0.0.0",
+      PR_CONTROL_ALLOWED_HOSTS: "preview.example.test",
       PR_APP_PORT: String(appPort),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -113,6 +116,26 @@ test("controls only its child, securely syncs a clean PR branch and rejects unsa
   });
 
   assert.equal((await fetch(`${url}/status`)).status, 401);
+  const statusWithHost = (host) =>
+    new Promise((resolve, reject) => {
+      http
+        .get(
+          {
+            hostname: "127.0.0.1",
+            port: controlPort,
+            path: "/status",
+            headers: { Host: host, Authorization: `Bearer ${token}` },
+          },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode);
+          },
+        )
+        .on("error", reject);
+    });
+  assert.equal(await statusWithHost("preview.example.test"), 200);
+  assert.equal(await statusWithHost("other.example.test"), 403);
+  assert.equal((await (await call("/status")).json()).controlHost, "0.0.0.0");
   assert.equal(
     (
       await call("/stop", {

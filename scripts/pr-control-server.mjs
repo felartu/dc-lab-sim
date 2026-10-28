@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local-only controller for a PR checkout and the Vite process it starts.
+// Controller for a PR checkout and the Vite process it starts. Loopback by default.
 import { spawn, execFile } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -11,6 +11,12 @@ const token = process.env.PR_CONTROL_TOKEN || "";
 const branch =
   process.env.PR_CONTROL_BRANCH || "fix/domain-filter-and-fault-injection";
 const controlPort = Number(process.env.PR_CONTROL_PORT || 5174);
+const controlHost = process.env.PR_CONTROL_BIND_HOST || "127.0.0.1";
+const extraHosts = (process.env.PR_CONTROL_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+const allowedHosts = new Set(["127.0.0.1", "localhost", ...extraHosts]);
 const appPort = Number(process.env.PR_APP_PORT || 5173);
 const appHost = process.env.PR_APP_HOST || "127.0.0.1";
 const childEnv = { ...process.env };
@@ -26,10 +32,13 @@ if (
   appPort < 1 ||
   appPort > 65535 ||
   controlPort === appPort ||
+  !["127.0.0.1", "0.0.0.0"].includes(controlHost) ||
+  extraHosts.some((host) => !/^[a-z0-9.-]+$/.test(host)) ||
+  (controlHost === "0.0.0.0" && extraHosts.length === 0) ||
   !["127.0.0.1", "0.0.0.0"].includes(appHost)
 ) {
   throw new Error(
-    "Set a PR_CONTROL_TOKEN of at least 32 bytes and valid branch, port, and app host settings.",
+    "Set a PR_CONTROL_TOKEN of at least 32 bytes and valid branch, port, bind host, and allowed host settings.",
   );
 }
 const root = (
@@ -215,9 +224,9 @@ const server = http.createServer(async (req, res) => {
   if (!authorized(req)) return respond(res, 401, { error: "Unauthorized" });
   if (
     req.headers.origin ||
-    !["127.0.0.1", "localhost"].includes((req.headers.host || "").split(":")[0])
+    !allowedHosts.has((req.headers.host || "").split(":")[0].toLowerCase())
   )
-    return respond(res, 403, { error: "Local non-browser requests only" });
+    return respond(res, 403, { error: "Host or browser origin not allowed" });
   if (req.method === "GET" && req.url === "/status") {
     try {
       return respond(res, 200, {
@@ -226,6 +235,7 @@ const server = http.createServer(async (req, res) => {
         running: !!app,
         pid: app?.pid ?? null,
         busy,
+        controlHost,
         appHost,
         appPort,
       });
@@ -267,8 +277,13 @@ const server = http.createServer(async (req, res) => {
 if ((await git("branch", "--show-current")) !== branch) {
   throw new Error("Checkout is not on the configured PR branch.");
 }
-server.listen(controlPort, "127.0.0.1", () => {
-  console.log(`PR controller listening on 127.0.0.1:${controlPort}`);
+server.listen(controlPort, controlHost, () => {
+  console.log(`PR controller listening on ${controlHost}:${controlPort}`);
+  if (controlHost === "0.0.0.0") {
+    console.warn(
+      "Control API uses plain HTTP: protect it with a private network or TLS and a firewall.",
+    );
+  }
   busy = true;
   startApp()
     .catch((error) => console.error(error.message))

@@ -1,7 +1,7 @@
 # PR preview controller
 
 This optional Linux controller starts and manages a Vite preview from a checkout of
-the PR branch. It exposes an authenticated HTTP API on `127.0.0.1` only. It
+the PR branch. It exposes an authenticated HTTP API on `127.0.0.1` by default. It
 does not manage a Vite server that was started separately.
 
 On the webserver, stop any existing Vite server using the intended app port,
@@ -21,7 +21,7 @@ nohup env PR_APP_HOST=0.0.0.0 node scripts/pr-control-server.mjs > "$HOME/.dclab
 
 `PR_APP_HOST=0.0.0.0` makes the **application** accessible on the server's
 network interfaces, as in the existing webserver setup. Omit it for loopback
-access only. The controller itself always listens on loopback. Protect the
+access only. The controller listens on loopback by default. Protect the
 token file; never put the token in a URL or commit it to the repository.
 
 The controller starts the app on port 5173 by default. After loading the token
@@ -44,12 +44,21 @@ leaves the app stopped. `stop` stops the managed app while leaving the control
 API running so `start` can bring it back. The controller itself must be
 restarted separately after changes to its script.
 
-For access from another computer, use an authenticated SSH tunnel to the
-webserver's loopback port and use the same token locally. Do not expose the
-control port directly to a network. A remote agent also needs a network route
-to that tunnel and authorized access to the token.
+For access from another computer, prefer an authenticated SSH tunnel to the
+webserver's loopback port and use the same token locally. A remote agent also
+needs a network route to that tunnel and authorized access to the token.
+
+To listen on all IPv4 interfaces, explicitly set both
+`PR_CONTROL_BIND_HOST=0.0.0.0` and `PR_CONTROL_ALLOWED_HOSTS` to a comma-separated
+list of addresses or hostnames clients use in their HTTP `Host` header. Loopback
+hostnames remain allowed. This host check does not restrict source addresses:
+use a firewall to allow only trusted clients. The controller serves plain HTTP,
+so bearer tokens are visible on the network; use a private VPN or a TLS reverse
+proxy for remote access instead of sending the token over the public internet.
 
 Optional environment variables: `PR_CONTROL_BRANCH` (defaults to
 `fix/domain-filter-and-fault-injection`), `PR_CONTROL_PORT` (5174),
-`PR_APP_PORT` (5173), and `PR_APP_HOST` (`127.0.0.1` or `0.0.0.0`). `origin`
+`PR_CONTROL_BIND_HOST` (`127.0.0.1` or `0.0.0.0`),
+`PR_CONTROL_ALLOWED_HOSTS` (additional HTTP hostnames), `PR_APP_PORT` (5173),
+and `PR_APP_HOST` (`127.0.0.1` or `0.0.0.0`). `origin`
 must point to the fork containing the configured branch.
