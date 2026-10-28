@@ -288,6 +288,9 @@ export function applyFaultsToContext(
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             temperature: parameters?.targetTemp || 95,
+            ...(parameters?.clocksSM !== undefined
+              ? { clocksSM: parameters.clocksSM }
+              : {}),
           });
         }
         break;
@@ -296,11 +299,11 @@ export function applyFaultsToContext(
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             eccErrors: {
-              singleBit: parameters?.singleBit || 10,
-              doubleBit: parameters?.doubleBit || 1,
+              singleBit: parameters?.singleBit ?? 10,
+              doubleBit: parameters?.doubleBit ?? 1,
               aggregated: {
-                singleBit: parameters?.singleBit || 10,
-                doubleBit: parameters?.doubleBit || 1,
+                singleBit: parameters?.singleBit ?? 10,
+                doubleBit: parameters?.doubleBit ?? 1,
               },
             },
           });
@@ -309,8 +312,19 @@ export function applyFaultsToContext(
 
       case "nvlink-failure":
         if (gpuId !== undefined) {
+          const gpu = context.getGPU(nodeId, gpuId);
           context.updateGPU(nodeId, gpuId, {
             healthStatus: "Warning",
+            nvlinks: gpu?.nvlinks.map((link) =>
+              link.linkId === 2
+                ? {
+                    ...link,
+                    speed: link.speed / 2,
+                    txErrors: link.txErrors + 10,
+                    replayErrors: link.replayErrors + 25,
+                  }
+                : link,
+            ),
           });
         }
         break;
@@ -358,6 +372,7 @@ export function applyFaultsToContext(
         break;
 
       case "driver-error":
+        context.setServiceState(nodeId, "nvidia-driver", "inactive");
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             healthStatus: "Critical",
