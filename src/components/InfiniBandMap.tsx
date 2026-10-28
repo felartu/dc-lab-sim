@@ -8,7 +8,15 @@
 
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import * as d3 from "d3";
-import type { ClusterConfig, DGXNode } from "@/types/hardware";
+import type {
+  ClusterConfig,
+  DGXNode,
+} from "@/types/hardware";
+import {
+  getHostRailLinkStatus,
+  getInfiniBandLinkCounts,
+  isInfiniBandPortActive,
+} from "@/utils/infinibandTopology";
 import { Network } from "lucide-react";
 import { useContainerSize } from "@/hooks/useContainerSize";
 import {
@@ -80,21 +88,21 @@ const bandwidthLabel = (bandwidth: number): string => {
 const getLinkColor = (
   host: DGXNode | undefined,
   baseStatus: "active" | "down",
+  railIndex?: number,
 ): string => {
   if (baseStatus === "down" || !host) return "#EF4444"; // Red for down
 
-  // Sum errors across all HCA ports
-  const totalErrors = host.hcas.reduce(
-    (sum, hca) =>
+  // Color each host-to-rail connection from that rail's HCA errors only.
+  const ports =
+    railIndex === undefined
+      ? host.hcas.flatMap((hca) => hca.ports)
+      : (host.hcas[railIndex]?.ports ?? []);
+  const totalErrors = ports.reduce(
+    (sum, port) =>
       sum +
-      hca.ports.reduce(
-        (portSum, port) =>
-          portSum +
-          port.errors.symbolErrors +
-          port.errors.portRcvErrors +
-          port.errors.linkDowned,
-        0,
-      ),
+      port.errors.symbolErrors +
+      port.errors.portRcvErrors +
+      port.errors.linkDowned,
     0,
   );
 
@@ -127,6 +135,11 @@ interface FabricLink {
   speed: string;
 }
 
+function getRailIndex(leafId: string | null | undefined): number | undefined {
+  const match = leafId?.match(/^leaf-(\d+)$/);
+  return match ? Number(match[1]) : undefined;
+}
+
 // Stable empty arrays to prevent unnecessary re-renders
 const EMPTY_NODE_ARRAY: string[] = [];
 const EMPTY_SWITCH_ARRAY: string[] = [];
@@ -154,6 +167,31 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
   const reducedMotion = useReducedMotion();
   const [selectedNode, setSelectedNode] = useState<NetworkNodeType | null>(
     null,
+  );
+
+  // ScenarioContext mutates its cluster in place, so use a value signature to
+  // refresh D3 links when a fault changes an HCA without changing object identity.
+  const hcaLinkStateKey = cluster.nodes
+    .flatMap((node) =>
+      node.hcas.flatMap((hca) =>
+        hca.ports.map(
+          (port) =>
+            `${node.id}:${hca.id}:${port.portNumber}:${port.state}:${port.physicalState}:${port.errors.symbolErrors}:${port.errors.portRcvErrors}:${port.errors.linkDowned}`,
+        ),
+      ),
+    )
+    .join("|");
+  const railLinkData = useMemo(
+    () => ({
+      stateKey: hcaLinkStateKey,
+      byNode: cluster.nodes.map((node) =>
+        node.hcas.map(
+          (hca) =>
+            hca.ports.length > 0 && hca.ports.every(isInfiniBandPortActive),
+        ),
+      ),
+    }),
+    [cluster.nodes, hcaLinkStateKey],
   );
 
   // Keep ref updated with latest cluster data
@@ -209,11 +247,10 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
     const nodeSpacing = width / (cluster.nodes.length + 1);
     const hostNodes = cluster.nodes.map((node, idx) => ({
       id: node.id,
+      nodeIndex: idx,
       x: nodeSpacing * (idx + 1),
       y: hostY,
-      active: node.hcas.some((hca) =>
-        hca.ports.some((p) => p.state === "Active"),
-      ),
+      active: railLinkData.byNode[idx]?.some(Boolean) ?? false,
       utilization:
         node.gpus.reduce((sum, g) => sum + g.utilization, 0) / node.gpus.length,
     }));
@@ -236,22 +273,24 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
 
     // Leaf to Host links (rail-optimized: each host connects to ALL leafs)
     hostNodes.forEach((host) => {
-      leafNodes.forEach((leaf) => {
+      leafNodes.forEach((leaf, railIndex) => {
+        const active =
+          railLinkData.byNode[host.nodeIndex]?.[railIndex] ?? false;
         links.push({
           id: `${leaf.id}-${host.id}`,
           sourceX: leaf.x,
           sourceY: leaf.y,
           targetX: host.x,
           targetY: host.y,
-          active: host.active,
-          utilization: host.active ? host.utilization : 0,
+          active,
+          utilization: active ? host.utilization : 0,
           bidirectional: true,
         });
       });
     });
 
     return links;
-  }, [cluster, fabricConfig, width, height]);
+  }, [cluster, fabricConfig, railLinkData, width, height]);
 
   // Disable particle animations when user prefers reduced motion
   const { particleCount } = useNetworkAnimation({
@@ -315,7 +354,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
     cluster.nodes.forEach((node, idx) => {
       // Check if any InfiniBand port is active
       const hasActiveIB = node.hcas.some((hca) =>
-        hca.ports.some((port) => port.state === "Active"),
+        hca.ports.some(isInfiniBandPortActive),
       );
       nodes.push({
         id: node.id,
@@ -345,11 +384,13 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
 
     // Create links: Leaf to Hosts (rail-optimized: each host connects to ALL leafs)
     hostNodes.forEach((host) => {
-      leafNodes.forEach((leaf) => {
+      leafNodes.forEach((leaf, railIndex) => {
+        const hostNode = cluster.nodes.find((n) => n.id === host.id);
+        const status = getHostRailLinkStatus(hostNode, railIndex);
         links.push({
           source: leaf,
           target: host,
-          status: host.status === "active" ? "active" : "down",
+          status,
           speed: bandwidthLabel(fabricConfig.leafToHostBandwidth),
         });
       });
@@ -373,7 +414,8 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
         // For host links, check host's port errors
         if (d.target.type === "host") {
           const hostNode = cluster.nodes.find((n) => n.id === d.target.id);
-          return getLinkColor(hostNode, d.status);
+          const railIndex = getRailIndex(d.source.id);
+          return getLinkColor(hostNode, d.status, railIndex);
         }
         // Spine-leaf links use simple status
         return d.status === "active" ? "#10B981" : "#EF4444";
@@ -390,19 +432,17 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
         const isHostLink = d.target.type === "host";
         if (!isHostLink) return 0.7;
         const hostNode = cluster.nodes.find((n) => n.id === d.target.id);
+        const railIndex = getRailIndex(d.source.id);
+        const ports =
+          railIndex === undefined
+            ? (hostNode?.hcas.flatMap((hca) => hca.ports) ?? [])
+            : (hostNode?.hcas[railIndex]?.ports ?? []);
         const totalErrors =
-          hostNode?.hcas.reduce(
-            (sum, hca) =>
-              sum +
-              hca.ports.reduce(
-                (portSum, port) =>
-                  portSum +
-                  port.errors.symbolErrors +
-                  port.errors.portRcvErrors,
-                0,
-              ),
+          ports.reduce(
+            (sum, port) =>
+              sum + port.errors.symbolErrors + port.errors.portRcvErrors,
             0,
-          ) || 0;
+          );
         if (totalErrors > 0) return 0.6;
         return 0.15;
       })
@@ -450,6 +490,10 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
         const hostNode = clusterRef.current.nodes.find(
           (n) => n.id === d.target.id,
         );
+        const railIndex = getRailIndex(d.source.id);
+        const status = hostNode && railIndex !== undefined
+          ? getHostRailLinkStatus(hostNode, railIndex)
+          : d.status;
 
         // Collect port info from host (if target is a host)
         const ports = hostNode
@@ -483,7 +527,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
             sourceLabel: d.source.label,
             targetLabel: d.target.label,
             speed: d.speed,
-            status: d.status,
+            status,
             totalErrors,
             ports,
           },
@@ -717,28 +761,24 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
               const hostNode = clusterRef.current.nodes.find(
                 (n) => n.id === tgt,
               );
-              const baseStatus: "active" | "down" = hostNode?.hcas.some((hca) =>
-                hca.ports.some((p) => p.state === "Active"),
-              )
-                ? "active"
+              const railIndex = getRailIndex(line.attr("data-link-source"));
+              const baseStatus = hostNode && railIndex !== undefined
+                ? getHostRailLinkStatus(hostNode, railIndex)
                 : "down";
-              const color = getLinkColor(hostNode, baseStatus);
+              const color = getLinkColor(hostNode, baseStatus, railIndex);
               const totalErrors =
-                hostNode?.hcas.reduce(
-                  (sum, hca) =>
-                    sum +
-                    hca.ports.reduce(
-                      (ps, port) =>
-                        ps +
-                        port.errors.symbolErrors +
-                        port.errors.portRcvErrors,
-                      0,
-                    ),
+                (railIndex === undefined
+                  ? hostNode?.hcas.flatMap((hca) => hca.ports)
+                  : hostNode?.hcas[railIndex]?.ports
+                )?.reduce(
+                  (sum, port) =>
+                    sum + port.errors.symbolErrors + port.errors.portRcvErrors,
                   0,
                 ) || 0;
               line
                 .attr("stroke", color)
                 .attr("stroke-width", 1.5)
+                .attr("stroke-dasharray", baseStatus === "active" ? "0" : "5,5")
                 .attr("opacity", totalErrors > 0 ? 0.6 : 0.15);
             } else {
               // Spine-leaf link
@@ -793,7 +833,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
             let activeHosts = 0;
             clusterRef.current.nodes.forEach((host) => {
               const hca = host.hcas[leafIdx];
-              if (hca?.ports.some((p) => p.state === "Active")) {
+              if (hca?.ports.some(isInfiniBandPortActive)) {
                 activeHosts++;
               }
             });
@@ -812,7 +852,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
                 (hcaSum, hca) =>
                   hcaSum +
                   hca.ports
-                    .filter((p) => p.state === "Active")
+                    .filter(isInfiniBandPortActive)
                     .reduce((portSum, p) => portSum + p.rate, 0),
                 0,
               ),
@@ -936,28 +976,29 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
       const hostNode = cluster.nodes.find((n) => n.id === targetId);
       if (!hostNode) return;
 
-      const hasActivePort = hostNode.hcas.some((hca) =>
-        hca.ports.some((p) => p.state === "Active"),
-      );
-      const baseStatus: "active" | "down" = hasActivePort ? "active" : "down";
-      const color = getLinkColor(hostNode, baseStatus);
+      const railIndex = getRailIndex(line.attr("data-link-source"));
+      const nodeIndex = cluster.nodes.findIndex((node) => node.id === targetId);
+      const baseStatus =
+        railIndex !== undefined &&
+        (railLinkData.byNode[nodeIndex]?.[railIndex] ?? false)
+          ? "active"
+          : "down";
+      const color = getLinkColor(hostNode, baseStatus, railIndex);
 
       line
         .attr("stroke", color)
-        .attr("stroke-dasharray", hasActivePort ? "0" : "5,5");
+        .attr("stroke-dasharray", baseStatus === "active" ? "0" : "5,5");
 
       // Update tooltip
-      const totalErrors = hostNode.hcas.reduce(
-        (sum, hca) =>
+      const ports = railIndex === undefined
+        ? hostNode.hcas.flatMap((hca) => hca.ports)
+        : (hostNode.hcas[railIndex]?.ports ?? []);
+      const totalErrors = ports.reduce(
+        (sum, port) =>
           sum +
-          hca.ports.reduce(
-            (portSum, port) =>
-              portSum +
-              port.errors.symbolErrors +
-              port.errors.portRcvErrors +
-              port.errors.linkDowned,
-            0,
-          ),
+          port.errors.symbolErrors +
+          port.errors.portRcvErrors +
+          port.errors.linkDowned,
         0,
       );
       line.select("title").text((d) => {
@@ -976,7 +1017,7 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
       if (!hostNode) return; // Skip spine/leaf switches
 
       const hasActivePort = hostNode.hcas.some((hca) =>
-        hca.ports.some((p) => p.state === "Active"),
+        hca.ports.some(isInfiniBandPortActive),
       );
       group
         .select("circle:not(.error-badge)")
@@ -1009,12 +1050,10 @@ export const InfiniBandMap: React.FC<InfiniBandMapProps> = ({
         badgeText.attr("display", "none");
       }
     });
-  }, [cluster.nodes]);
+  }, [cluster.nodes, railLinkData]);
 
-  const totalLinks = cluster.nodes.length;
-  const activeLinks = cluster.nodes.filter((n) =>
-    n.hcas.some((hca) => hca.ports.some((port) => port.state === "Active")),
-  ).length;
+  const { active: activeLinks, total: totalLinks } =
+    getInfiniBandLinkCounts(cluster);
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 relative">
