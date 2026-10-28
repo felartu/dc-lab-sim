@@ -1056,25 +1056,53 @@ Feb 12 08:15:24 dgx-00 kernel: [234569.200] NVRM: GPU at 0000:07:00.0: GPU is lo
     ) {
       if (action === "show" && device) {
         // Show specific interface
-        return this.handleIpAddrShow(device, hostname);
+        return this.withIbLinkState(
+          this.handleIpAddrShow(device, hostname),
+          context,
+        );
       }
       // Show all interfaces
-      return this.handleIpAddrAll(hostname);
+      return this.withIbLinkState(this.handleIpAddrAll(hostname), context);
     }
 
     if (subcommand === "link") {
       if (action === "show" && device) {
-        return this.handleIpLinkShow(device);
+        return this.withIbLinkState(this.handleIpLinkShow(device), context);
       }
-      return this.handleIpLinkAll();
+      return this.withIbLinkState(this.handleIpLinkAll(), context);
     }
 
     if (subcommand === "route" || subcommand === "r") {
-      return this.handleIpRoute();
+      return this.withIbLinkState(this.handleIpRoute(), context);
     }
 
     // Default to addr
-    return this.handleIpAddrAll(hostname);
+    return this.withIbLinkState(this.handleIpAddrAll(hostname), context);
+  }
+
+  /** Reflect each simulated HCA's physical link in the corresponding IP interface. */
+  private withIbLinkState(
+    result: CommandResult,
+    context: CommandContext,
+  ): CommandResult {
+    const node = this.resolveNode(context);
+    if (!node || result.exitCode !== 0) return result;
+    let output = result.output;
+    node.hcas?.forEach((hca, index) => {
+      if (hca.ports[0]?.state !== "Down") return;
+      const header = new RegExp(
+        `^(\\d+: ib${index}: <)([^>]+)(>[^\\n]*\\bstate )UP`,
+        "m",
+      );
+      output = output.replace(
+        header,
+        (_match, start: string, flags: string, end: string) =>
+          `${start}NO-CARRIER,${flags.replace(/,?LOWER_UP/g, "")}${end}DOWN`,
+      );
+      const route = new RegExp(`^(.*\\bdev ib${index}\\b[^\\n]*)$`, "m");
+      output = output.replace(route, "$1 linkdown");
+    });
+    return { ...result, output };
   }
 
   private handleIpAddrShow(device: string, _hostname: string): CommandResult {

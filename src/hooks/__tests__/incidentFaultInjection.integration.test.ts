@@ -5,6 +5,7 @@ import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
 import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
 import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
 import { SlurmSimulator } from "@/simulators/slurmSimulator";
+import { LinuxUtilsSimulator } from "@/simulators/linuxUtilsSimulator";
 import { useIncidentSession } from "@/hooks/useIncidentSession";
 import { parse } from "@/utils/commandParser";
 import { scenarioContextManager } from "@/store/scenarioContext";
@@ -171,6 +172,29 @@ describe("live incident fault injection", () => {
             expect(
               ib.executeIblinkinfo(parse("iblinkinfo"), ctx).output,
             ).toContain(" Down ");
+            const linux = new LinuxUtilsSimulator();
+            for (const line of [
+              "ip addr show ib0",
+              "ip addr",
+              "ip link show ib0",
+              "ip link",
+            ]) {
+              expect(linux.execute(parse(line), ctx).output).toMatch(
+                /ib0: <NO-CARRIER,[^>]+>[^\n]*state DOWN/,
+              );
+            }
+            expect(linux.execute(parse("ip route"), ctx).output).toMatch(
+              /dev ib0[^\n]*linkdown/,
+            );
+            const otherNode = context
+              .getCluster()
+              .nodes.find((candidate) => candidate.id !== nodeId)!;
+            expect(
+              linux.execute(parse("ip addr show ib0"), {
+                ...ctx,
+                currentNode: otherNode.id,
+              }).output,
+            ).toMatch(/ib0: <[^>]*LOWER_UP[^>]*>[^\n]*state UP/);
           }
           break;
         case "combined-nvlink-thermal":
