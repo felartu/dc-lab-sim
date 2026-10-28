@@ -1631,10 +1631,10 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       output += `    Power Management                      : Supported\n`;
       output += `    Power Draw                            : ${g.powerDraw.toFixed(2)} W\n`;
       output += `    Power Limit                           : ${g.powerLimit.toFixed(2)} W\n`;
-      output += `    Default Power Limit                   : ${g.powerLimit.toFixed(2)} W\n`;
+      output += `    Default Power Limit                   : ${specs.gpu.tdpWatts.toFixed(2)} W\n`;
       output += `    Enforced Power Limit                  : ${g.powerLimit.toFixed(2)} W\n`;
       output += `    Min Power Limit                       : 100.00 W\n`;
-      output += `    Max Power Limit                       : ${g.powerLimit.toFixed(2)} W\n\n`;
+      output += `    Max Power Limit                       : ${specs.gpu.tdpWatts.toFixed(2)} W\n\n`;
 
       output += `Clocks\n`;
       output += `    Graphics                              : ${g.clocksSM} MHz\n`;

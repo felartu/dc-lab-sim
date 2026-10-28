@@ -90,18 +90,21 @@ export function formatDisplayTemperature(gpu: GPU, _node?: DGXNode): string {
   return output;
 }
 
-export function formatDisplayPower(gpu: GPU, _node?: DGXNode): string {
+export function formatDisplayPower(gpu: GPU, node?: DGXNode): string {
   const powerDraw = Math.round(gpu.powerDraw);
   const powerLimit = Math.round(gpu.powerLimit);
-  const minLimit = Math.round(gpu.powerLimit * 0.5);
+  const defaultLimit = node
+    ? getHardwareSpecs(node.systemType).gpu.tdpWatts
+    : powerLimit;
+  const minLimit = Math.round(defaultLimit * 0.5);
   const isSXM = gpu.name?.includes("SXM") || false;
-  const maxLimit = isSXM ? powerLimit : Math.round(gpu.powerLimit * 1.05);
+  const maxLimit = isSXM ? defaultLimit : Math.round(defaultLimit * 1.05);
   let output = `    GPU Power Readings\n`;
   output += `        Power Management                  : Supported\n`;
   output += `        Power Draw                        : ${powerDraw}.00 W\n`;
   output += `        Current Power Limit               : ${powerLimit}.00 W\n`;
   output += `        Requested Power Limit             : ${powerLimit}.00 W\n`;
-  output += `        Default Power Limit               : ${powerLimit}.00 W\n`;
+  output += `        Default Power Limit               : ${defaultLimit}.00 W\n`;
   output += `        Min Power Limit                   : ${minLimit}.00 W\n`;
   output += `        Max Power Limit                   : ${maxLimit}.00 W\n`;
   output += `    Module Power Readings\n`;

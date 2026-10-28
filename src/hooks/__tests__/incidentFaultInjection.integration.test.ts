@@ -305,6 +305,22 @@ describe("live incident fault injection", () => {
     expect(gpu0Section).toContain(
       "Current Power Limit               : 300.00 W",
     );
+    expect(gpu0Section).toContain(
+      "Default Power Limit               : 400.00 W",
+    );
+    expect(gpu0Section).toContain(
+      "Max Power Limit                   : 400.00 W",
+    );
+    const fullOutput = simulator.execute(parse("nvidia-smi -i 0 -q"), {
+      currentNode: targetNode!.id,
+      currentPath: "/root",
+      environment: {},
+      history: [],
+      cluster: incidentContext!.getCluster(),
+      scenarioContext: incidentContext,
+    });
+    expect(fullOutput.output).toMatch(/Default Power Limit\s+: 400\.00 W/);
+    expect(fullOutput.output).toMatch(/Max Power Limit\s+: 400\.00 W/);
     const ipmi = new IpmitoolSimulator();
     const commandContext = {
       currentNode: targetNode!.id,
