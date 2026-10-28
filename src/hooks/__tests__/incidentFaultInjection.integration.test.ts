@@ -4,12 +4,128 @@ import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
 import { useIncidentSession } from "@/hooks/useIncidentSession";
 import { parse } from "@/utils/commandParser";
 import { scenarioContextManager } from "@/store/scenarioContext";
+import { INCIDENT_TEMPLATES } from "@/data/incidentTemplates";
 
 describe("live incident fault injection", () => {
   afterEach(() => {
     scenarioContextManager.clearAll();
     vi.restoreAllMocks();
   });
+
+  const cases = [
+    ["gpu-memory-xid48", 1, "beginner"],
+    ["gpu-hang-xid43", 4, "intermediate"],
+    ["gpu-off-bus-xid79", 5, "advanced"],
+    ["nvlink-fabric-degradation", 2, "intermediate"],
+    ["thermal-runaway", 5, "beginner"],
+    ["ecc-accumulation-row-remap", 4, "advanced"],
+    ["multi-node-job-failure", 4, "intermediate"],
+    ["power-supply-stress", 1, "beginner"],
+    ["infiniband-link-down", 2, "intermediate"],
+    ["combined-nvlink-thermal", 5, "advanced"],
+    ["driver-error-bringup", 3, "beginner"],
+  ] as const;
+
+  it.each(cases)(
+    "injects the primary fault for %s",
+    (id, domain, difficulty) => {
+      const candidates = INCIDENT_TEMPLATES.filter(
+        (template) =>
+          template.domains.includes(domain) &&
+          template.difficulty === difficulty,
+      );
+      const index = candidates.findIndex((template) => template.id === id);
+      expect(index).toBeGreaterThanOrEqual(0);
+      vi.spyOn(Math, "random").mockReturnValue(
+        (index + 0.1) / candidates.length,
+      );
+      const { result, unmount } = renderHook(() => useIncidentSession());
+      act(() => result.current.startIncident(difficulty, domain));
+      const context = scenarioContextManager.getActiveContext()!;
+      const nodeId = result.current.situation.match(/dgx-\d+/)?.[0];
+      expect(nodeId).toBeDefined();
+      const node = context.getNode(nodeId!)!;
+      const gpu = (index: number) => node.gpus.find((g) => g.id === index)!;
+      const xid = (index: number, code: number) =>
+        expect(gpu(index).xidErrors.some((e) => e.code === code)).toBe(true);
+      const simulator = new NvidiaSmiSimulator();
+      const command = (line: string) =>
+        simulator.execute(parse(line), {
+          currentNode: nodeId!,
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: context,
+          cluster: context.getCluster(),
+        });
+      for (const diagnostic of result.current.diagnosticPath) {
+        for (const hostname of diagnostic.match(/dgx-\d+/g) ?? [])
+          expect(hostname).toBe(nodeId);
+      }
+
+      switch (id) {
+        case "gpu-memory-xid48":
+          expect(gpu(3).eccErrors.doubleBit).toBeGreaterThan(0);
+          xid(3, 48);
+          break;
+        case "gpu-hang-xid43":
+          expect(gpu(5).utilization).toBe(0);
+          xid(5, 43);
+          break;
+        case "gpu-off-bus-xid79":
+          xid(2, 79);
+          expect(node.slurmState).toBe("drain");
+          expect(command("nvidia-smi -L").output).not.toContain("GPU 2:");
+          break;
+        case "nvlink-fabric-degradation":
+          for (const i of [1, 2])
+            expect(gpu(i).nvlinks[2].replayErrors).toBeGreaterThan(0);
+          expect(command("nvidia-smi nvlink -e").output).toContain(
+            "Replay Errors: 25",
+          );
+          break;
+        case "thermal-runaway":
+          expect(
+            node.gpus.every((g) => g.temperature === 95 && g.clocksSM === 600),
+          ).toBe(true);
+          break;
+        case "ecc-accumulation-row-remap":
+          expect(gpu(6).eccErrors.singleBit).toBe(1247);
+          expect(gpu(6).eccErrors.doubleBit).toBe(0);
+          xid(6, 92);
+          expect(command("nvidia-smi -q -d ROW_REMAPPER").output).toContain(
+            "Correctable Error                 : true",
+          );
+          break;
+        case "multi-node-job-failure":
+          xid(7, 43);
+          expect(node.slurmState).toBe("drain");
+          break;
+        case "power-supply-stress":
+          expect(
+            node.gpus
+              .slice(0, 4)
+              .every((g) => g.powerLimit === 300 && g.powerDraw <= 300),
+          ).toBe(true);
+          break;
+        case "infiniband-link-down":
+          expect(node.hcas[0].ports[0].state).toBe("Down");
+          break;
+        case "combined-nvlink-thermal":
+          for (const i of [3, 4])
+            expect(gpu(i).nvlinks[2].replayErrors).toBeGreaterThan(0);
+          for (const i of [6, 7]) expect(gpu(i).temperature).toBe(95);
+          break;
+        case "driver-error-bringup":
+          expect(context.getServiceState(nodeId!, "nvidia-driver")).toBe(
+            "inactive",
+          );
+          expect(command("nvidia-smi").exitCode).not.toBe(0);
+          break;
+      }
+      unmount();
+    },
+  );
 
   it("shows the Domain 1 XID 48 ECC fault in nvidia-smi output", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
