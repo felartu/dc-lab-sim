@@ -76,17 +76,30 @@ const HealthIndicator: React.FC<{ status: HealthStatus }> = ({ status }) => {
   );
 };
 
+const GPU_TEMP_WARNING_C = 83;
+const GPU_TEMP_CRITICAL_C = 92;
+
+function getGPUHealthStatus(
+  gpu: Pick<GPU, "healthStatus" | "temperature">,
+): HealthStatus {
+  if (gpu.healthStatus === "Critical" || gpu.temperature >= GPU_TEMP_CRITICAL_C)
+    return "Critical";
+  if (gpu.healthStatus === "Warning" || gpu.temperature >= GPU_TEMP_WARNING_C)
+    return "Warning";
+  return gpu.healthStatus;
+}
+
 const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
   // Temperature status with color AND text alternatives for accessibility (WCAG 1.4.1)
   const getTempStatus = (temp: number) => {
-    if (temp >= 92)
+    if (temp >= GPU_TEMP_CRITICAL_C)
       return {
         color: "text-red-500",
         symbol: "✕",
         label: "Critical",
         ariaLabel: `Temperature critical: ${Math.round(temp)} degrees Celsius`,
       };
-    if (temp >= 83)
+    if (temp >= GPU_TEMP_WARNING_C)
       return {
         color: "text-yellow-500",
         symbol: "⚠",
@@ -109,7 +122,7 @@ const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
         <h3 className="text-sm font-semibold text-nvidia-green">
           GPU {gpu.id}
         </h3>
-        <HealthIndicator status={gpu.healthStatus} />
+        <HealthIndicator status={getGPUHealthStatus(gpu)} />
       </div>
       <p className="text-xs text-gray-400 truncate mb-3">{gpu.name}</p>
 
@@ -329,13 +342,13 @@ const ClusterHealthSummary: React.FC = () => {
   const healthyGPUs = effectiveCluster.nodes.reduce(
     (sum, node) =>
       sum +
-      (node?.gpus?.filter((gpu) => gpu.healthStatus === "OK").length ?? 0),
+      (node?.gpus?.filter((gpu) => getGPUHealthStatus(gpu) === "OK").length ?? 0),
     0,
   );
   const criticalGPUs = effectiveCluster.nodes.reduce(
     (sum, node) =>
       sum +
-      (node?.gpus?.filter((gpu) => gpu.healthStatus === "Critical").length ??
+      (node?.gpus?.filter((gpu) => getGPUHealthStatus(gpu) === "Critical").length ??
         0),
     0,
   );
@@ -343,7 +356,7 @@ const ClusterHealthSummary: React.FC = () => {
   // Gather critical GPU details for expandable view
   const criticalGPUDetails = effectiveCluster.nodes.flatMap((node) =>
     node.gpus
-      .filter((gpu) => gpu.healthStatus === "Critical")
+      .filter((gpu) => getGPUHealthStatus(gpu) === "Critical")
       .map((gpu) => ({
         nodeId: node.id,
         gpuId: gpu.id,
