@@ -238,6 +238,15 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       return this.createError("Error: Unable to determine current node");
     }
 
+    if (
+      context.scenarioContext?.getServiceState(node.id, "nvidia-driver") ===
+      "inactive"
+    ) {
+      return this.createError(
+        "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.",
+      );
+    }
+
     // Handle MIG operations via flags (nvidia-smi mig is handled via subcommand)
     if (parsed.flags.has("mig")) {
       return this.handleMigFlag(parsed, context);
@@ -1118,19 +1127,24 @@ export class NvidiaSmiSimulator extends BaseSimulator {
     }
 
     if (this.hasAnyFlag(parsed, ["status", "s"])) {
-      let output = `GPU 0: ${node.gpus[0].name}\n`;
-      node.gpus[0].nvlinks.forEach((link) => {
-        output += `\tLink ${link.linkId}: ${link.status} (${link.speed} GB/s)\n`;
+      let output = "";
+      node.gpus.forEach((gpu) => {
+        output += `GPU ${gpu.id}: ${gpu.name}\n`;
+        gpu.nvlinks.forEach((link) => {
+          output += `\tLink ${link.linkId}: ${link.status} (${link.speed} GB/s)\n`;
+        });
       });
       return this.createSuccess(output);
     }
 
     // Error counters (-e flag)
     if (this.hasAnyFlag(parsed, ["e"])) {
-      let output = `GPU 0: ${node.gpus[0].name}\n`;
-      output += `NVLink Error Counters:\n`;
-      node.gpus[0].nvlinks.forEach((link) => {
-        output += `  Link ${link.linkId}: CRC Errors: ${link.txErrors + link.rxErrors}, Replay Errors: ${link.replayErrors}\n`;
+      let output = "";
+      node.gpus.forEach((gpu) => {
+        output += `GPU ${gpu.id}: ${gpu.name}\nNVLink Error Counters:\n`;
+        gpu.nvlinks.forEach((link) => {
+          output += `  Link ${link.linkId}: CRC Errors: ${link.txErrors + link.rxErrors}, Replay Errors: ${link.replayErrors}\n`;
+        });
       });
       return this.createSuccess(output);
     }
