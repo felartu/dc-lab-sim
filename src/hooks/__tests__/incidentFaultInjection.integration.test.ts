@@ -210,6 +210,9 @@ describe("live incident fault injection", () => {
             "inactive",
           );
           expect(command("nvidia-smi").exitCode).not.toBe(0);
+          expect(node.gpus.every((gpu) => gpu.healthStatus === "Unknown")).toBe(
+            true,
+          );
           {
             const basic = new BasicSystemSimulator();
             const ctx = {

@@ -427,7 +427,11 @@ export function applyFaultsToContext(
 
       case "driver-error":
         context.setServiceState(nodeId, "nvidia-driver", "inactive");
-        if (gpuId !== undefined) {
+        if (parameters?.nodeWide) {
+          context.getNode(nodeId)?.gpus.forEach((gpu) => {
+            context.updateGPU(nodeId, gpu.id, { healthStatus: "Unknown" });
+          });
+        } else if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             healthStatus: "Critical",
           });

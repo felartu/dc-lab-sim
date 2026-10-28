@@ -157,6 +157,14 @@ function mapIncidentFault(fault: {
         severity: "critical",
       };
 
+    case "driver-error":
+      return {
+        nodeId,
+        type: "driver-error",
+        severity: "critical",
+        parameters: { nodeWide: true },
+      };
+
     case "gpu-hang":
       return {
         nodeId,
