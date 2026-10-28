@@ -317,7 +317,11 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "GPU boost clocks and throughput.",
     difficulty: "beginner",
     domains: [1],
-    primaryFaults: [{ faultType: "power", target: "node" }],
+    primaryFaults: [0, 1, 2, 3].map((gpuId) => ({
+      faultType: "power-cap",
+      target: "specific-gpu" as const,
+      gpuId,
+    })),
     propagationTrigger: "power-anomaly",
     diagnosticPath: [
       "nvidia-smi",
