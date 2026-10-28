@@ -1489,8 +1489,19 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       "        ID   ID                                                   Usage      ";
     output += "|" + padCol(procCols2, TOTAL_WIDTH - 2) + "|\n";
     output += "|" + "=".repeat(TOTAL_WIDTH - 2) + "|\n";
-    const noProc = "  No running processes found";
-    output += "|" + padCol(noProc, TOTAL_WIDTH - 2) + "|\n";
+    const allocatedGPUs = gpus.filter(
+      (gpu) => gpu.allocatedJobId !== undefined,
+    );
+    if (allocatedGPUs.length === 0) {
+      output +=
+        "|" + padCol("  No running processes found", TOTAL_WIDTH - 2) + "|\n";
+    } else {
+      for (const gpu of allocatedGPUs) {
+        const pid = gpu.allocatedJobId! * 10 + gpu.id;
+        const row = `  ${gpu.id.toString().padStart(3)}  N/A  N/A  ${String(pid).padStart(9)}      C   python (job ${gpu.allocatedJobId})         ${Math.round(gpu.memoryUsed)}MiB`;
+        output += "|" + padCol(row, TOTAL_WIDTH - 2) + "|\n";
+      }
+    }
     output += TOP_BORDER + "\n";
 
     // Add warning if some GPUs are not visible due to XID errors

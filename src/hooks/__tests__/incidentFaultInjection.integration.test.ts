@@ -94,6 +94,15 @@ describe("live incident fault injection", () => {
         case "gpu-hang-xid43":
           expect(gpu(5).utilization).toBe(0);
           xid(5, 43);
+          expect(
+            node.gpus
+              .filter((g) => g.id !== 5)
+              .every((g) => g.utilization === 100),
+          ).toBe(true);
+          expect(command("nvidia-smi").output).toContain("python (job 1000)");
+          expect(command("nvidia-smi").output).not.toContain(
+            "No running processes found",
+          );
           break;
         case "gpu-off-bus-xid79":
           xid(2, 79);

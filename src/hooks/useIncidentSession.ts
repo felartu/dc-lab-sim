@@ -259,7 +259,7 @@ function seedIncidentWorkload(
       nodeCount: 4,
       state: "RUNNING",
       runtime: "1:00:00",
-      utilization: 95,
+      utilization: 100,
     },
     "nvlink-fabric-degradation": {
       nodeCount: 1,
