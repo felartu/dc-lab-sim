@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Dashboard } from "../Dashboard";
 
@@ -125,6 +125,10 @@ vi.mock("@/store/simulationStore", () => ({
 }));
 
 describe("Dashboard", () => {
+  beforeEach(() => {
+    mockNode.gpus[0].temperature = 45;
+  });
+
   it("should render GPU cards", () => {
     render(<Dashboard />);
     expect(screen.getByText("A100-SXM4-80GB")).toBeInTheDocument();
@@ -140,5 +144,15 @@ describe("Dashboard", () => {
     render(<Dashboard />);
     // Dashboard has view tabs like Overview, Topology, etc.
     expect(screen.getByText(/overview/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    [72, "Temperature normal: 72 degrees Celsius"],
+    [85, "Temperature warning: 85 degrees Celsius"],
+    [95, "Temperature critical: 95 degrees Celsius"],
+  ])("uses thermal thresholds for %i°C", (temperature, label) => {
+    mockNode.gpus[0].temperature = temperature;
+    render(<Dashboard />);
+    expect(screen.getByRole("status", { name: label })).toBeInTheDocument();
   });
 });
