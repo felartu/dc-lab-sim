@@ -497,6 +497,7 @@ function App() {
       {incidentState === "review" && reviewData && (
         <Suspense fallback={null}>
           <AfterActionReview
+            startedAt={reviewData.startedAt}
             score={reviewData.score}
             correctDiagnosis={reviewData.correctDiagnosis}
             selectedRootCause={reviewData.selectedRootCause}

@@ -168,7 +168,7 @@
         {
           "id": "step-10",
           "type": "command",
-          "situation": "Your mentor nods approvingly. 'Good. Now check the system log.'",
+          "situation": "Your mentor nods approvingly. 'Good. Now check the GPUs on this node.'",
           "task": "Run nvidia-smi to see the GPUs on this training node.",
           "expectedCommands": ["nvidia-smi"],
           "hints": ["Type: nvidia-smi", "This shows all GPUs and their status"],

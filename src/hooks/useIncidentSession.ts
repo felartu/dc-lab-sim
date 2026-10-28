@@ -36,6 +36,7 @@ import type { ClusterEvent } from "@/simulation/eventLog";
 export type IncidentState = "idle" | "active" | "review";
 
 export interface ReviewData {
+  startedAt: number;
   score: WorkflowScore;
   correctDiagnosis: boolean;
   selectedRootCause: string;
@@ -359,11 +360,13 @@ export function useIncidentSession() {
   const hintsUsedRef = useRef(0);
   const difficultyRef = useRef<string>("beginner");
   const domainRef = useRef<number | undefined>(undefined);
+  const startedAtRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // startIncident
   // -------------------------------------------------------------------------
   const startIncident = useCallback((difficulty: string, domain?: number) => {
+    startedAtRef.current = Date.now();
     // 1. Create ScenarioContext with unique ID
     const contextId = `incident-${Date.now()}`;
     const context = scenarioContextManager.createContext(contextId);
@@ -507,6 +510,7 @@ export function useIncidentSession() {
 
       // 5. Build review data
       const review: ReviewData = {
+        startedAt: startedAtRef.current,
         score,
         correctDiagnosis,
         selectedRootCause,

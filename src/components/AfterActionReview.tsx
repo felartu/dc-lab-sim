@@ -15,6 +15,8 @@ import type { WorkflowScore, PhaseEntry } from "@/simulation/workflowTracker";
 import type { ClusterEvent } from "@/simulation/eventLog";
 
 interface AfterActionReviewProps {
+  /** Incident start time in Unix milliseconds */
+  startedAt: number;
   /** Composite workflow score with 5 sub-dimensions */
   score: WorkflowScore;
   /** Whether the user diagnosed correctly */
@@ -84,8 +86,8 @@ function getSeverityColor(severity: string): string {
   }
 }
 
-function formatTimestamp(ts: number): string {
-  const seconds = (ts / 1000).toFixed(1);
+function formatTimestamp(ts: number, startedAt: number): string {
+  const seconds = (Math.max(0, ts - startedAt) / 1000).toFixed(1);
   return `${seconds}s`;
 }
 
@@ -129,6 +131,7 @@ function buildTimeline(
 // ---------------------------------------------------------------------------
 
 export function AfterActionReview({
+  startedAt,
   score,
   correctDiagnosis,
   selectedRootCause,
@@ -250,7 +253,7 @@ export function AfterActionReview({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-gray-500">
-                            {formatTimestamp(evt.timestamp)}
+                            {formatTimestamp(evt.timestamp, startedAt)}
                           </span>
                           <span className="rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
                             {evt.type}
@@ -278,7 +281,7 @@ export function AfterActionReview({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-gray-500">
-                            {formatTimestamp(cmd.timestamp)}
+                            {formatTimestamp(cmd.timestamp, startedAt)}
                           </span>
                           <span className="rounded bg-nvidia-green/20 px-1.5 py-0.5 text-xs text-nvidia-green">
                             {cmd.phase}
