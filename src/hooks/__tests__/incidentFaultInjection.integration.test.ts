@@ -98,6 +98,16 @@ describe("live incident fault injection", () => {
           xid(2, 79);
           expect(node.slurmState).toBe("drain");
           expect(command("nvidia-smi -L").output).not.toContain("GPU 2:");
+          expect(
+            new BasicSystemSimulator().execute(parse("dmesg"), slurmContext)
+              .output,
+          ).toMatch(/AER: Corrected error/);
+          expect(
+            new IpmitoolSimulator().execute(
+              parse("ipmitool sel list"),
+              slurmContext,
+            ).output,
+          ).toMatch(/GPU #2 PCIe.*Correctable AER error storm/);
           break;
         case "nvlink-fabric-degradation":
           for (const i of [1, 2])

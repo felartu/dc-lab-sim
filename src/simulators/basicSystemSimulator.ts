@@ -694,6 +694,9 @@ Available types:
             // Add additional context for critical XID codes
             if (error.code === 79) {
               xidMessages.push(
+                `${formatTimestamp(timestamp - 0.001)} pcieport ${pciAddr}: AER: Corrected error received repeatedly on PCIe link`,
+              );
+              xidMessages.push(
                 `${formatTimestamp(timestamp + 0.001)} NVRM: GPU at ${pciAddr} has fallen off the bus.`,
               );
               xidMessages.push(

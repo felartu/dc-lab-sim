@@ -855,6 +855,13 @@ export class IpmitoolSimulator extends BaseSimulator {
               );
             }
             recordId++;
+            if (xid.code === 79) {
+              const aerId = recordId.toString(16).padStart(4, "0");
+              entries.push(
+                `   ${aerId} | ${timeStr} | GPU #${gpuIdx} PCIe | Correctable AER error storm | Asserted`,
+              );
+              recordId++;
+            }
           });
         }
 
