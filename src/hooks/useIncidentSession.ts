@@ -249,6 +249,7 @@ function seedIncidentWorkload(
       state: "RUNNING" | "FAILED";
       runtime: string;
       utilization?: number;
+      utilizationByGpu?: readonly number[];
       jobId?: number;
       failedRank?: number;
       rankCount?: number;
@@ -290,6 +291,7 @@ function seedIncidentWorkload(
       nodeCount: 1,
       state: "RUNNING",
       runtime: "2:00:00",
+      utilizationByGpu: [30, 45, 65, 90, 40, 75, 55, 35],
     },
   };
   const plan = plans[incident.templateId];
@@ -320,6 +322,19 @@ function seedIncidentWorkload(
     ],
     context,
   );
+
+  if (plan.utilizationByGpu) {
+    for (const [gpuId, utilization] of plan.utilizationByGpu.entries()) {
+      const gpu = context.getGPU(target, gpuId);
+      if (!gpu) continue;
+      context.updateGPU(target, gpuId, {
+        utilization,
+        powerDraw: Math.round(
+          gpu.powerLimit * (0.2 + (utilization / 100) * 0.6),
+        ),
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

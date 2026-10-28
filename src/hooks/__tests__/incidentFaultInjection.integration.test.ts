@@ -210,6 +210,9 @@ describe("live incident fault injection", () => {
           for (const i of [3, 4])
             expect(gpu(i).nvlinks[2].replayErrors).toBeGreaterThan(0);
           for (const i of [6, 7]) expect(gpu(i).temperature).toBe(95);
+          expect(node.gpus.map((g) => g.utilization)).toEqual([
+            30, 45, 65, 90, 40, 75, 55, 35,
+          ]);
           expect(
             node.bmc.sensors.find((s) => s.name === "Inlet Temp")?.reading,
           ).toBe(39);
