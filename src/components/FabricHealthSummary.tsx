@@ -8,6 +8,7 @@
 import React from 'react';
 import { Activity, AlertTriangle, Link2, Server } from 'lucide-react';
 import type { ClusterConfig } from '@/types/hardware';
+import { isInfiniBandPortActive } from '@/utils/infinibandTopology';
 
 interface FabricHealthSummaryProps {
   cluster: ClusterConfig;
@@ -49,7 +50,7 @@ const calculateFabricMetrics = (cluster: ClusterConfig): FabricMetrics => {
       hca.ports.forEach(port => {
         totalPorts++;
 
-        if (port.state === 'Active') {
+        if (isInfiniBandPortActive(port)) {
           activePorts++;
           nodeHasActivePort = true;
 
