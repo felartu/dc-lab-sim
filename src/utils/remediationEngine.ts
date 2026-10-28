@@ -134,8 +134,9 @@ const PROFILES: Record<FaultKind, FaultProfile> = {
     healthyUpdates: (gpu) => ({
       xidErrors: [],
       // A GPU that fell off the PCIe bus reports its NVLinks down; a successful
-      // power-cycle brings them back. (Off-bus never changes temperature, so we
-      // leave it alone rather than forcing an arbitrary value.)
+      // power-cycle brings them back. If the GPU was also overheating, the
+      // maintenance cycle assumes the cooling fault was repaired first.
+      ...(gpu.temperature > 80 ? { temperature: 65 } : {}),
       nvlinks: gpu.nvlinks.map((l) => ({
         ...l,
         status: "Active" as const,

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FaultInjectionConfig } from "@/types/scenarios";
 import type { ClusterConfig } from "@/types/hardware";
 import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
+import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
+import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
 import { parse } from "@/utils/commandParser";
 
 // ── Mock data for the simulation store ────────────────────────────
@@ -845,9 +847,54 @@ describe("scenarioLoader", () => {
 
       expect(result.output).toContain("Xid");
       expect(result.output).toContain("79");
+      expect(result.output).toContain("thermal slowdown temperature (95C)");
+      const selResult = await new IpmitoolSimulator().execute(
+        parse("ipmitool sel elist"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(selResult.output).toContain(
+        "GPU #5 | Temperature - Upper Critical going high (95C)",
+      );
       expect(activeContext.getGPU("dgx-05", 5)?.healthStatus).toBe(
         "Critical",
       );
+      expect(activeContext.getGPU("dgx-05", 5)?.temperature).toBe(95);
+
+      activeContext.setSlurmState("dgx-05", "drain", "PCIe maintenance");
+      const recovery = await new IpmitoolSimulator().execute(
+        parse("ipmitool chassis power cycle"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(recovery.output).toContain("Recovered 1 GPU(s)");
+      expect(activeContext.getGPU("dgx-05", 5)).toMatchObject({
+        xidErrors: [],
+        healthStatus: "OK",
+        temperature: 65,
+      });
+
+      const gpuList = await new NvidiaSmiSimulator().execute(
+        parse("nvidia-smi -L"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(gpuList.output).toContain("GPU 5:");
     });
   });
 });

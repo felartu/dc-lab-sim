@@ -67,6 +67,13 @@ describe("specific fault↔narrative consistency", () => {
     ).toBeDefined();
     expect(fault!.gpuId).toBe(5);
     expect(fault!.nodeId).toBe("dgx-05");
+    expect(
+      firstStep.autoFaults?.find((f) => f.type === "thermal"),
+    ).toMatchObject({
+      nodeId: "dgx-05",
+      gpuId: 5,
+      parameters: { targetTemp: 95 },
+    });
 
     const recoveryStep = s!.steps.at(-1)!;
     expect(recoveryStep.expectedCommands).toContain(

@@ -4046,6 +4046,15 @@
                 "xid": 79,
                 "description": "GPU has fallen off the bus"
               }
+            },
+            {
+              "nodeId": "dgx-05",
+              "gpuId": 5,
+              "type": "thermal",
+              "severity": "critical",
+              "parameters": {
+                "targetTemp": 95
+              }
             }
           ]
         },
@@ -4094,7 +4103,7 @@
         },
         {
           "id": "step-4",
-          "situation": "SEL shows thermal events preceding each XID error by 5-10 minutes.",
+          "situation": "SEL records GPU 5 over-temperature and PCIe AER events alongside XID 79. Check the current thermal readings.",
           "task": "Check current thermal sensor readings across the system.",
           "expectedCommands": ["sensors"],
           "hints": [
@@ -4121,13 +4130,13 @@
         },
         {
           "id": "step-5",
-          "situation": "Ambient temperature in the rack area shows significant variation. HVAC issue suspected.",
-          "task": "Check historical temperature data in the BMC.",
+          "situation": "The HVAC alarm has cleared, but facilities reports a 15°C daily inlet-temperature swing. Compare it with the current BMC reading.",
+          "task": "Record the current inlet temperature from the BMC.",
           "expectedCommands": ["ipmitool sensor get 'Inlet Temp'"],
           "hints": [
-            "ipmitool sensor get specific sensor",
-            "Look for temp trends",
-            "BMC may log history"
+            "ipmitool sensor get 'Inlet Temp' shows the current value",
+            "Compare the current reading with facilities' daily trend",
+            "Use the SEL to review recorded hardware events"
           ],
           "validation": {
             "type": "command",
@@ -4137,7 +4146,7 @@
         },
         {
           "id": "step-6",
-          "situation": "Inlet temperature varies 15C over the course of each day. HVAC cycling too aggressively.",
+          "situation": "Facilities confirms the 15°C daily swing. Document the GPU health baseline before maintenance.",
           "task": "Document GPU health status before scheduling maintenance.",
           "expectedCommands": ["nvidia-smi -q"],
           "hints": [
