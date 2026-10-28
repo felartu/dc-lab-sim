@@ -282,6 +282,17 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
     setActiveScenario(null);
   }, []);
 
+  const handleCompleteScenario = useCallback(() => {
+    setScenarios((previous) =>
+      previous.map((scenario, index) =>
+        index === currentScenarioIndex
+          ? { ...scenario, completed: true }
+          : scenario,
+      ),
+    );
+    setActiveScenario(null);
+  }, [currentScenarioIndex]);
+
   // Render setup screen
   if (gauntletState === "setup") {
     return (
@@ -518,6 +529,14 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                 </div>
 
                 <div className="flex gap-3">
+                  {!scenarios[currentScenarioIndex]?.completed && (
+                    <button
+                      onClick={handleCompleteScenario}
+                      className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors"
+                    >
+                      Mark Complete
+                    </button>
+                  )}
                   <button
                     onClick={handleCloseScenario}
                     className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
