@@ -156,6 +156,15 @@ function mapIncidentFault(fault: {
         parameters: { powerDraw: 700 },
       };
 
+    case "power-cap":
+      return {
+        nodeId,
+        gpuId,
+        type: "power" as FaultType,
+        severity: "warning",
+        parameters: { powerLimit: 300 },
+      };
+
     default:
       // Best-effort: use faultType as the type directly
       return {
