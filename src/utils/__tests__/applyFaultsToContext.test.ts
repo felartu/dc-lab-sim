@@ -195,7 +195,9 @@ describe("applyFaultsToContext", () => {
     const gpu = context.getGPU("dgx-00", 0);
     expect(gpu?.xidErrors).toHaveLength(1);
     expect(gpu?.xidErrors[0].code).toBe(79);
-    expect(context.getMutationCount()).toBe(1);
+    expect(gpu?.healthStatus).toBe("Critical");
+    expect(gpu?.utilization).toBe(0);
+    expect(context.getMutationCount()).toBe(2);
   });
 
   it("applies thermal fault to context", () => {

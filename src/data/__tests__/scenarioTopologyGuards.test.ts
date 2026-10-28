@@ -11,6 +11,7 @@ interface Step {
   id: string;
   situation: string;
   task: string;
+  expectedCommands?: string[];
   hints?: string[];
   autoFaults?: Fault[];
   validation?: { pattern?: string };
@@ -56,14 +57,22 @@ describe("specific fault↔narrative consistency", () => {
   it("domain5-xid-investigation XID 79 fault targets the GPU the narrative names (GPU 5)", () => {
     const s = scenarios.find((x) => x.id === "domain5-xid-investigation");
     expect(s, "domain5-xid-investigation not found in scenarios").toBeDefined();
-    const fault = s!.steps
-      .flatMap((st) => st.autoFaults ?? [])
-      .find((f) => f.parameters?.xid === 79);
+    const firstStep = s!.steps[0];
+    const fault = firstStep.autoFaults?.find(
+      (f) => f.parameters?.xid === 79,
+    );
     expect(
       fault,
-      "XID 79 fault not found in domain5-xid-investigation",
+      "XID 79 must be active when the first step asks the user to inspect dmesg",
     ).toBeDefined();
     expect(fault!.gpuId).toBe(5);
+    expect(fault!.nodeId).toBe("dgx-05");
+
+    const recoveryStep = s!.steps.at(-1)!;
+    expect(recoveryStep.expectedCommands).toContain(
+      "ipmitool chassis power cycle",
+    );
+    expect(recoveryStep.expectedCommands).toContain("nvidia-smi");
   });
 
   it("domain4-silent-cluster step-4 narrative ECC count matches the injected singleBit (150)", () => {

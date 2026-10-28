@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FaultInjectionConfig } from "@/types/scenarios";
 import type { ClusterConfig } from "@/types/hardware";
+import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
+import { parse } from "@/utils/commandParser";
 
 // ── Mock data for the simulation store ────────────────────────────
 
@@ -753,12 +755,27 @@ describe("scenarioLoader", () => {
     let mockClearAll: ReturnType<typeof vi.fn>;
     let mockCreateContext: ReturnType<typeof vi.fn>;
     let mockSetActiveContext: ReturnType<typeof vi.fn>;
+    let activeContext: ScenarioContext;
 
     beforeEach(() => {
       mockClearAll = vi.fn();
       mockCreateContext = vi.fn(() => {
         // Return a real ScenarioContext for fault application
-        return new ScenarioContext("test", createMockCluster());
+        const cluster = createMockCluster();
+        const baseNode = cluster.nodes[0];
+        for (let nodeIndex = 1; nodeIndex < 8; nodeIndex++) {
+          cluster.nodes.push({
+            ...structuredClone(baseNode),
+            id: `dgx-${String(nodeIndex).padStart(2, "0")}`,
+            hostname: `dgx-${String(nodeIndex).padStart(2, "0")}`,
+            gpus: Array.from({ length: 8 }, (_, gpuId) => ({
+              ...structuredClone(baseNode.gpus[0]),
+              id: gpuId,
+            })),
+          });
+        }
+        activeContext = new ScenarioContext("test", cluster);
+        return activeContext;
       });
       mockSetActiveContext = vi.fn();
 
@@ -809,6 +826,27 @@ describe("scenarioLoader", () => {
       );
       expect(mockSetActiveContext).toHaveBeenCalledWith(
         "domain1-midnight-deployment",
+      );
+    });
+
+    it("injects the XID 79 fault before the first mission step asks for dmesg", async () => {
+      await initializeScenario("domain5-xid-investigation");
+
+      const result = await new BasicSystemSimulator().execute(
+        parse("dmesg | grep -i xid"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+
+      expect(result.output).toContain("Xid");
+      expect(result.output).toContain("79");
+      expect(activeContext.getGPU("dgx-05", 5)?.healthStatus).toBe(
+        "Critical",
       );
     });
   });

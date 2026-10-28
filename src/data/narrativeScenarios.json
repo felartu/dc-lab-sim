@@ -4022,7 +4022,7 @@
       "steps": [
         {
           "id": "step-1",
-          "situation": "Monitoring alerts show frequent XID 79 errors on dgx-05 over the past 24 hours.",
+          "situation": "Monitoring alerts show recurring XID 79 errors on GPU 5 of dgx-05 over the past 24 hours.",
           "task": "Check system logs for XID error patterns and frequency.",
           "expectedCommands": ["ssh dgx-05", "dmesg | grep -i xid"],
           "hints": [
@@ -4035,22 +4035,6 @@
             "type": "command",
             "command": "dmesg",
             "pattern": "XID|NVRM|error"
-          }
-        },
-        {
-          "id": "step-2",
-          "situation": "dmesg shows 'XID 79' errors occurring every 2-3 hours, affecting different GPUs.",
-          "task": "Check current GPU status using nvidia-smi.",
-          "expectedCommands": ["nvidia-smi"],
-          "hints": [
-            "nvidia-smi shows GPU health",
-            "Look for missing or errored GPUs",
-            "Note affected GPU indices"
-          ],
-          "validation": {
-            "type": "command",
-            "command": "nvidia-smi",
-            "pattern": "GPU|ERR"
           },
           "autoFaults": [
             {
@@ -4063,7 +4047,23 @@
                 "description": "GPU has fallen off the bus"
               }
             }
+          ]
+        },
+        {
+          "id": "step-2",
+          "situation": "The kernel log confirms recurring XID 79 errors on GPU 5. Check which GPUs remain visible to the driver.",
+          "task": "Check current GPU status using nvidia-smi.",
+          "expectedCommands": ["nvidia-smi"],
+          "hints": [
+            "nvidia-smi shows GPU health",
+            "Look for missing or errored GPUs",
+            "Note affected GPU indices"
           ],
+          "validation": {
+            "type": "command",
+            "command": "nvidia-smi",
+            "pattern": "GPU|ERR"
+          },
           "quiz": {
             "question": "What does XID 79 (GPU has fallen off the bus) typically indicate?",
             "options": [
@@ -4078,7 +4078,7 @@
         },
         {
           "id": "step-3",
-          "situation": "Currently all 8 GPUs are visible but GPU 5 was recently reset. Pattern suggests intermittent failures.",
+          "situation": "nvidia-smi cannot see GPU 5 after the XID 79 event. Check the BMC event log for a correlated thermal or power event.",
           "task": "Check BMC System Event Log for correlated hardware events.",
           "expectedCommands": ["ipmitool sel elist"],
           "hints": [
@@ -4153,7 +4153,7 @@
         },
         {
           "id": "step-7",
-          "situation": "GPU health looks okay but XID errors are accumulating. Create support bundle.",
+          "situation": "GPU 5 remains unavailable while the other GPUs are visible. Create a support bundle before maintenance.",
           "task": "Generate nvidia-bug-report for detailed analysis.",
           "expectedCommands": ["nvidia-bug-report.sh"],
           "hints": [
@@ -4196,8 +4196,8 @@
         },
         {
           "id": "step-9",
-          "situation": "Diagnostics show borderline results on GPU 5. Recommend proactive monitoring.",
-          "task": "Drain the node for inspection and potential PCIe reseat.",
+          "situation": "Diagnostics confirm GPU 5 is unavailable. Drain the node before scheduling a PCIe reseat and power cycle.",
+          "task": "Drain dgx-05 for inspection and repair.",
           "expectedCommands": [
             "scontrol update nodename=dgx-05 state=drain reason='XID 79 PCIe reseat'"
           ],
@@ -4214,9 +4214,9 @@
         },
         {
           "id": "step-10",
-          "situation": "Node drained. After PCIe reseat and HVAC fix, verify recovery.",
-          "task": "Run final nvidia-smi check after maintenance.",
-          "expectedCommands": ["nvidia-smi"],
+          "situation": "The PCIe reseat and HVAC repair are complete, and dgx-05 is drained. Power-cycle it, then verify all GPUs return.",
+          "task": "Power-cycle the repaired node and confirm all eight GPUs are visible.",
+          "expectedCommands": ["ipmitool chassis power cycle", "nvidia-smi"],
           "hints": [
             "nvidia-smi for GPU status",
             "All 8 should be healthy",

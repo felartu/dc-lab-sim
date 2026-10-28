@@ -180,7 +180,8 @@ describe("Sandbox Isolation", () => {
     // Both faults should be present
     expect(context.getGPU("dgx-00", 0)?.temperature).toBe(80);
     expect(context.getGPU("dgx-00", 1)?.xidErrors).toHaveLength(1);
-    expect(context.getMutationCount()).toBe(2);
+    expect(context.getGPU("dgx-00", 1)?.healthStatus).toBe("Critical");
+    expect(context.getMutationCount()).toBe(3);
   });
 
   it("clearing context leaves global state clean", () => {
