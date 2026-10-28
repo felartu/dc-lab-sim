@@ -379,6 +379,8 @@ export interface ExamState {
 }
 
 export interface ExamBreakdown {
+  /** Exam mode, absent on attempts saved before mode tracking was introduced. */
+  mode?: string;
   totalPoints: number;
   earnedPoints: number;
   percentage: number;

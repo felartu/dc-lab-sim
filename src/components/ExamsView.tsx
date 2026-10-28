@@ -39,12 +39,6 @@ export function ExamsView({
   const families = (commandFamiliesData as { families: CommandFamily[] })
     .families;
 
-  // Get last exam score for display on cards
-  const lastExamScore =
-    examAttempts.length > 0
-      ? examAttempts[examAttempts.length - 1].percentage
-      : undefined;
-
   return (
     <div data-testid="exams-list" className="p-6 h-full overflow-auto">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -72,9 +66,13 @@ export function ExamsView({
                   }
                 }}
                 lastScore={
-                  mode.id === "full-practice" || mode.id === "quick-quiz"
-                    ? lastExamScore
-                    : undefined
+                  [...examAttempts]
+                    .reverse()
+                    .find(
+                      (attempt) =>
+                        attempt.mode === mode.examMode &&
+                        mode.launchKey === "exam",
+                    )?.percentage
                 }
               />
             ))}

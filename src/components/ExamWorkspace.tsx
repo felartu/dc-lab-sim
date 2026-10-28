@@ -97,7 +97,8 @@ export function ExamWorkspace({
   );
   const [showResults, setShowResults] = useState(false);
   const [showReview, setShowReview] = useState(false);
-  const [examTimer, setExamTimer] = useState<ExamTimer | null>(null);
+  const examTimerRef = useRef<ExamTimer | null>(null);
+  const submitExamRef = useRef<() => void>(() => {});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Reset scroll position when moving between questions. On mobile the question
@@ -114,8 +115,10 @@ export function ExamWorkspace({
 
   // Load questions on mount
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
       const allQuestions = await loadExamQuestions();
+      if (cancelled) return;
       const selectedQuestions = selectQuestionsForMode(
         allQuestions,
         examConfig,
@@ -128,25 +131,21 @@ export function ExamWorkspace({
       // Start timer (0 = no limit, use a large value)
       const duration = timeLimitSeconds || 999 * 60;
       const timer = new ExamTimer(duration);
+      examTimerRef.current = timer;
       timer.start(
         (remaining) => setTimeRemaining(remaining),
-        () => handleTimeExpired(),
+        () => submitExamRef.current(),
       );
-      setExamTimer(timer);
     };
 
     init();
 
     return () => {
-      examTimer?.stop();
+      cancelled = true;
+      examTimerRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally run once on mount
-
-  const handleTimeExpired = () => {
-    // Auto-submit exam when time expires
-    handleSubmitExam();
-  };
 
   const handleAnswerChange = (answer: number | number[]) => {
     if (!activeExam) return;
@@ -164,13 +163,14 @@ export function ExamWorkspace({
   const handleSubmitExam = () => {
     if (!activeExam) return;
 
-    examTimer?.stop();
+    examTimerRef.current?.stop();
 
     // Calculate score
     const breakdown = calculateExamScore(questions, activeExam.answers);
+    breakdown.mode = mode;
 
     // Update breakdown with actual time spent
-    breakdown.timeSpent = examTimer?.getTimeElapsed() || 0;
+    breakdown.timeSpent = examTimerRef.current?.getTimeElapsed() || 0;
 
     // End exam in store and record attempt
     endExam(breakdown);
@@ -178,9 +178,10 @@ export function ExamWorkspace({
 
     setShowResults(true);
   };
+  submitExamRef.current = handleSubmitExam;
 
   const handleExit = () => {
-    examTimer?.stop();
+    examTimerRef.current?.stop();
     exitExam();
     onClose();
   };

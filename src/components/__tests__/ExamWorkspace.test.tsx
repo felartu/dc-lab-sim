@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import type { ExamQuestion, ExamState } from "@/types/scenarios";
 
 // ============================================================================
@@ -233,6 +239,32 @@ describe("ExamWorkspace", () => {
     vi.mocked(loadExamQuestions).mockResolvedValue([]);
     vi.mocked(selectExamQuestions).mockReturnValue([]);
     vi.mocked(selectQuestionsForMode).mockReturnValue([]);
+  });
+
+  it("submits the current exam when the timer expires and stops the timer on unmount", async () => {
+    vi.mocked(loadExamQuestions).mockResolvedValue(mockQuestions);
+    vi.mocked(selectQuestionsForMode).mockReturnValue(mockQuestions);
+    const view = render(<ExamWorkspace onClose={onClose} mode="quick-quiz" />);
+    await waitFor(() => expect(mockTimerStart).toHaveBeenCalled());
+    mockActiveExam = {
+      examId: "ncp-aii-practice",
+      startTime: Date.now(),
+      timeRemaining: 0,
+      answers: { q1: 0 },
+      currentQuestionIndex: 0,
+      flaggedQuestions: [],
+      answeredQuestions: ["q1"],
+      submitted: false,
+    };
+    view.rerender(<ExamWorkspace onClose={onClose} mode="quick-quiz" />);
+    const onExpire = mockTimerStart.mock.calls[0][1];
+    act(() => onExpire());
+    expect(mockAddExamAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "quick-quiz", timeSpent: 120 }),
+    );
+    expect(mockEndExam).toHaveBeenCalled();
+    view.unmount();
+    expect(mockTimerStop).toHaveBeenCalled();
   });
 
   // --------------------------------------------------------------------------

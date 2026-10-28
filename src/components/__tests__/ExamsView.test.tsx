@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 
 // Mock Zustand stores
 const mockLearningState = {
-  examAttempts: [],
+  examAttempts: [] as Array<{
+    mode?: string;
+    percentage: number;
+    timeSpent: number;
+  }>,
   gauntletAttempts: [],
   currentStreak: 0,
   totalStudyTimeSeconds: 0,
@@ -73,6 +77,22 @@ function defaultProps() {
 describe("ExamsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLearningState.examAttempts = [];
+  });
+
+  it("shows a score only on the card for the mode that was taken", () => {
+    mockLearningState.examAttempts = [
+      { mode: "quick-quiz", percentage: 53, timeSpent: 20 },
+    ];
+    render(<ExamsView {...defaultProps()} />);
+    expect(
+      within(screen.getByTestId("exam-mode-card-quick-quiz")).getByText(/53/),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("exam-mode-card-full-practice")).queryByText(
+        /53/,
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("renders without crashing", () => {
