@@ -4,7 +4,7 @@ import type {
   NarrativeScenario,
 } from "@/types/scenarios";
 import type { ScenarioContext } from "@/store/scenarioContext";
-import type { InfiniBandHCA } from "@/types/hardware";
+import type { GPU, InfiniBandHCA } from "@/types/hardware";
 import { useSimulationStore } from "@/store/simulationStore";
 import { narrativeToScenario } from "./narrativeAdapter";
 import { createDGXNode } from "./clusterFactory";
@@ -40,6 +40,32 @@ function setInfiniBandPortDown(
           ),
         },
   );
+}
+
+function getPowerFaultUpdates(
+  gpu: GPU | undefined,
+  parameters?: Record<string, unknown>,
+): Partial<GPU> {
+  const requestedDraw =
+    typeof parameters?.powerDraw === "number"
+      ? parameters.powerDraw
+      : undefined;
+  const requestedLimit =
+    typeof parameters?.powerLimit === "number"
+      ? parameters.powerLimit
+      : undefined;
+
+  if (requestedLimit !== undefined) {
+    return {
+      powerLimit: requestedLimit,
+      powerDraw: Math.min(
+        requestedDraw ?? gpu?.powerDraw ?? requestedLimit,
+        requestedLimit,
+      ),
+    };
+  }
+
+  return { powerDraw: requestedDraw ?? 700 };
 }
 
 /**
@@ -213,9 +239,11 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
 
       case "power":
         if (gpuId !== undefined) {
-          store.updateGPU(nodeId, gpuId, {
-            powerDraw: parameters?.powerDraw || 700,
-          });
+          const node = store.cluster.nodes.find(
+            (candidate) => candidate.id === nodeId,
+          );
+          const gpu = node?.gpus.find((candidate) => candidate.id === gpuId);
+          store.updateGPU(nodeId, gpuId, getPowerFaultUpdates(gpu, parameters));
         }
         break;
 
@@ -313,9 +341,11 @@ export function applyFaultsToContext(
 
       case "power":
         if (gpuId !== undefined) {
-          context.updateGPU(nodeId, gpuId, {
-            powerDraw: parameters?.powerDraw || 700,
-          });
+          context.updateGPU(
+            nodeId,
+            gpuId,
+            getPowerFaultUpdates(context.getGPU(nodeId, gpuId), parameters),
+          );
         }
         break;
 
