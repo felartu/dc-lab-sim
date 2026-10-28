@@ -3,10 +3,9 @@ import React, {
   useState,
   useRef,
   useCallback,
-  useMemo,
 } from "react";
 import { useSimulationStore } from "@/store/simulationStore";
-import { scenarioContextManager } from "@/store/scenarioContext";
+import { useEffectiveCluster } from "@/hooks/useEffectiveCluster";
 import {
   Activity,
   HardDrive,
@@ -34,35 +33,6 @@ import {
 } from "@/utils/scenarioVisualizationMap";
 import { ALL_SYSTEM_TYPES, getSystemDisplayName } from "@/data/hardwareSpecs";
 import type { SystemType } from "@/data/hardwareSpecs";
-
-/**
- * Hook that returns the effective cluster for Dashboard components.
- * When a ScenarioContext is active, returns its isolated cluster;
- * otherwise falls back to the global store cluster.
- * Polls at 200ms for mutation reactivity.
- */
-function useEffectiveCluster() {
-  const globalCluster = useSimulationStore((state) => state.cluster);
-  const [scenarioVersion, setScenarioVersion] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const ctx = scenarioContextManager.getActiveContext();
-      if (ctx) {
-        setScenarioVersion(ctx.getMutationCount());
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, []);
-
-  const effectiveCluster = useMemo(() => {
-    const activeContext = scenarioContextManager.getActiveContext();
-    return activeContext ? activeContext.getCluster() : globalCluster;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalCluster, scenarioVersion]);
-
-  return effectiveCluster;
-}
 
 const HealthIndicator: React.FC<{ status: HealthStatus }> = ({ status }) => {
   const config = {
@@ -227,7 +197,8 @@ const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
 };
 
 const NodeSelector: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectedNode = useSimulationStore((state) => state.selectedNode);
   const selectNode = useSimulationStore((state) => state.selectNode);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -345,7 +316,8 @@ const SystemTypeSelector: React.FC = () => {
 };
 
 const ClusterHealthSummary: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectNode = useSimulationStore((state) => state.selectNode);
   const [alertExpanded, setAlertExpanded] = useState(false);
 
@@ -490,7 +462,8 @@ const ClusterHealthSummary: React.FC = () => {
 type DashboardView = "overview" | "metrics" | "topology" | "network";
 
 export const Dashboard: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectedNode = useSimulationStore((state) => state.selectedNode);
   const isRunning = useSimulationStore((state) => state.isRunning);
   const requestedVisualizationView = useSimulationStore(
