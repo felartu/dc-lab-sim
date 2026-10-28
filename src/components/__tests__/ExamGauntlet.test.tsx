@@ -62,8 +62,8 @@ vi.mock("../../utils/scenarioLoader", () => ({
       title: "Hardware Inventory Validation",
       domain: "domain1",
       difficulty: "beginner",
-      description: "Learn to validate hardware inventory",
-      learningObjectives: ["Objective 1", "Objective 2"],
+      description: "Learn to validate {{GPU_MODEL}} hardware inventory",
+      learningObjectives: ["Verify {{GPU_MEMORY_GB}} GB of GPU memory", "Objective 2"],
       steps: [
         {
           id: "step1",
@@ -454,6 +454,25 @@ describe("ExamGauntlet", () => {
       });
     });
 
+    it("substitutes hardware placeholders in displayed scenario text", async () => {
+      render(<ExamGauntlet onExit={mockOnExit} />);
+
+      fireEvent.click(screen.getByText("Start Exam"));
+      await waitFor(() => {
+        expect(screen.getByText("Finish Exam")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getAllByText("Launch")[0]);
+
+      expect(
+        await screen.findByText("Learn to validate A100 hardware inventory"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Verify 80 GB of GPU memory"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/\{\{[A-Z_]+\}\}/)).not.toBeInTheDocument();
+    });
+
     it("should show step list in scenario detail view", async () => {
       render(<ExamGauntlet onExit={mockOnExit} />);
 
@@ -572,6 +591,25 @@ describe("ExamGauntlet", () => {
           totalQuestions: 5,
           timeSpentSeconds: expect.any(Number),
         }),
+      );
+    });
+
+    it("records completed scenario count so history shows the same percentage", async () => {
+      render(<ExamGauntlet onExit={mockOnExit} />);
+
+      fireEvent.click(screen.getByText("Start Exam"));
+      await waitFor(() => {
+        expect(screen.getByText("Finish Exam")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getAllByText("Launch")[0]);
+      await screen.findByText("Learning Objectives");
+      fireEvent.click(screen.getByText("Mark Complete"));
+      fireEvent.click(screen.getByText("Finish Exam"));
+
+      expect(screen.getByText("20%")).toBeInTheDocument();
+      expect(mockRecordGauntletAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({ score: 1, totalQuestions: 5 }),
       );
     });
 
