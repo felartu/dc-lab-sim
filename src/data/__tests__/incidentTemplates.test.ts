@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { FAULT_PROPAGATION_RULES } from "../faultPropagationRules";
 import {
   INCIDENT_TEMPLATES,
   type IncidentTemplate,
@@ -87,15 +88,7 @@ describe("incidentTemplates", () => {
   });
 
   it("should have propagationTrigger that references a known fault rule", () => {
-    const knownTriggers = [
-      "xid-43",
-      "xid-48",
-      "xid-79",
-      "thermal-runaway",
-      "nvlink-failure",
-      "ecc-accumulation",
-      "power-anomaly",
-    ];
+    const knownTriggers = FAULT_PROPAGATION_RULES.map((rule) => rule.trigger);
     for (const t of INCIDENT_TEMPLATES) {
       // At least the first propagation trigger should be known
       // (combined incidents may have multiple)

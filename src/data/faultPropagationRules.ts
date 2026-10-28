@@ -11,6 +11,18 @@ export interface PropagationRule {
 
 export const FAULT_PROPAGATION_RULES: PropagationRule[] = [
   {
+    trigger: "ib-link-down",
+    consequences: [
+      {
+        delayMs: 5000,
+        action: "slurm-job-fail",
+        target: "slurm",
+        params: { reason: "InfiniBand link down" },
+        description: "Multi-node jobs fail when the InfiniBand link is unavailable",
+      },
+    ],
+  },
+  {
     trigger: "xid-43",
     consequences: [
       {
