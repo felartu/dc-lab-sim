@@ -301,6 +301,9 @@ import { Terminal } from "../Terminal";
 import { generateWelcomeMessage } from "../../constants/terminalConfig";
 import { scenarioContextManager } from "../../store/scenarioContext";
 import { handleKeyboardInput } from "../../utils/terminalKeyboardHandler";
+import { SlurmSimulator } from "../../simulators/slurmSimulator";
+import { NvidiaSmiSimulator } from "../../simulators/nvidiaSmiSimulator";
+import { parse } from "../../utils/commandParser";
 
 describe("Terminal", () => {
   beforeEach(() => {
@@ -395,6 +398,12 @@ describe("Terminal", () => {
     expect(scenarioContextManager.setActiveContext).not.toHaveBeenCalledWith(
       null,
     );
+    const slurm = vi.mocked(SlurmSimulator).mock.results[0].value;
+    expect(slurm.syncFromContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scenarioContext: mockScenarioContextState.activeContext,
+      }),
+    );
   });
 
   it("records executed incident commands and uses the latest callback", async () => {
@@ -413,6 +422,37 @@ describe("Terminal", () => {
     await act(async () => onData("\r"));
     await waitFor(() => expect(second).toHaveBeenCalledWith("nvidia-smi"));
     expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs remote SSH commands on the requested node without changing the connection", async () => {
+    const onIncidentCommand = vi.fn();
+    vi.mocked(handleKeyboardInput).mockImplementation((_data, config) => {
+      config.onExecute("ssh dgx-01 nvidia-smi");
+      return null;
+    });
+    render(<Terminal onIncidentCommand={onIncidentCommand} />);
+    await waitFor(() => expect(mockTerminal.onData).toHaveBeenCalled());
+    await act(async () => mockTerminal.onData.mock.calls[0][0]("\r"));
+    const simulator = vi.mocked(NvidiaSmiSimulator).mock.results[0].value;
+    await waitFor(() =>
+      expect(simulator.execute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ currentNode: "dgx-01" }),
+      ),
+    );
+    expect(onIncidentCommand).toHaveBeenCalledWith("ssh dgx-01 nvidia-smi");
+    expect(mockSimulationState.selectNode).not.toHaveBeenCalled();
+  });
+
+  it("expands environment variables before dispatching a terminal command", async () => {
+    vi.mocked(handleKeyboardInput).mockImplementation((_data, config) => {
+      config.onExecute("nvidia-smi $USER");
+      return null;
+    });
+    render(<Terminal />);
+    await waitFor(() => expect(mockTerminal.onData).toHaveBeenCalled());
+    await act(async () => mockTerminal.onData.mock.calls[0][0]("\r"));
+    await waitFor(() => expect(parse).toHaveBeenCalledWith("nvidia-smi root"));
   });
 
   it("does not write a welcome banner while a mission is in progress", async () => {

@@ -291,7 +291,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
     id: "multi-node-job-failure",
     title: "Multi-Node Job Failure (Slurm)",
     situation:
-      "A 16-node distributed training job (job ID 84291) failed after 6 hours of successful " +
+      "An 8-node distributed training job (job ID 84291) failed after 6 hours of successful " +
       "training. The user reports the job exited with NCCL error 'unhandled system error.' " +
       "squeue shows the job as FAILED. sacct shows ExitCode 1 on rank 12 (node dgx-19) while " +
       "all other ranks show ExitCode 9 (SIGKILL). The Slurm dashboard shows dgx-19 is now in " +

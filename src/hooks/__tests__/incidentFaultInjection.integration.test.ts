@@ -4,6 +4,7 @@ import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
 import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
 import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
 import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
+import { SlurmSimulator } from "@/simulators/slurmSimulator";
 import { useIncidentSession } from "@/hooks/useIncidentSession";
 import { parse } from "@/utils/commandParser";
 import { scenarioContextManager } from "@/store/scenarioContext";
@@ -53,6 +54,16 @@ describe("live incident fault injection", () => {
       const xid = (index: number, code: number) =>
         expect(gpu(index).xidErrors.some((e) => e.code === code)).toBe(true);
       const simulator = new NvidiaSmiSimulator();
+      const slurm = new SlurmSimulator();
+      const slurmContext = {
+        currentNode: nodeId!,
+        currentPath: "/root",
+        environment: {},
+        history: [],
+        cluster: context.getCluster(),
+        scenarioContext: context,
+      };
+      slurm.syncFromContext(slurmContext);
       const command = (line: string) =>
         simulator.execute(parse(line), {
           currentNode: nodeId!,
@@ -71,6 +82,13 @@ describe("live incident fault injection", () => {
         case "gpu-memory-xid48":
           expect(gpu(3).eccErrors.doubleBit).toBeGreaterThan(0);
           xid(3, 48);
+          expect(gpu(3).utilization).toBe(0);
+          expect(
+            slurm.executeSqueue(parse("squeue"), slurmContext).output,
+          ).toContain("training");
+          expect(
+            slurm.executeSqueue(parse("squeue"), slurmContext).output,
+          ).toContain(nodeId);
           break;
         case "gpu-hang-xid43":
           expect(gpu(5).utilization).toBe(0);
@@ -107,6 +125,16 @@ describe("live incident fault injection", () => {
         case "multi-node-job-failure":
           xid(7, 43);
           expect(node.slurmState).toBe("drain");
+          {
+            const accounting = slurm.executeSacct(
+              parse("sacct -j 84291 --format=JobID,NodeList,ExitCode,State"),
+              slurmContext,
+            );
+            expect(accounting.output).toContain(
+              `84291.12 | ${nodeId} | 1:0 | FAILED`,
+            );
+            expect(accounting.output).toContain("0:9 | FAILED");
+          }
           break;
         case "power-supply-stress":
           expect(
@@ -173,6 +201,18 @@ describe("live incident fault injection", () => {
           }
           break;
       }
+      act(() => {
+        result.current.recordCommand("nvidia-smi");
+      });
+      expect(result.current.commandCount).toBe(1);
+      const correctRootCause = INCIDENT_TEMPLATES.find(
+        (template) => template.id === id,
+      )!.correctRootCause.replace(/dgx-\d+/g, nodeId!);
+      expect(result.current.rootCauseOptions).toContain(correctRootCause);
+      act(() => result.current.submitDiagnosis(correctRootCause));
+      expect(result.current.incidentState).toBe("review");
+      expect(result.current.reviewData?.correctDiagnosis).toBe(true);
+      expect(scenarioContextManager.getActiveContext()).toBeUndefined();
       unmount();
     },
   );

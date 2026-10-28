@@ -25,7 +25,10 @@ import { ClusterKitSimulator } from "@/simulators/clusterKitSimulator";
 import { NeMoSimulator } from "@/simulators/nemoSimulator";
 import { LinuxUtilsSimulator } from "@/simulators/linuxUtilsSimulator";
 import { useSimulationStore } from "@/store/simulationStore";
-import { scenarioContextManager } from "@/store/scenarioContext";
+import {
+  scenarioContextManager,
+  type ScenarioContext,
+} from "@/store/scenarioContext";
 import { logger } from "@/utils/logger";
 import { ScenarioValidator } from "@/utils/scenarioValidator";
 import { parse as parseCommand } from "@/utils/commandParser";
@@ -54,6 +57,7 @@ import {
   validatePipeSyntax,
 } from "@/utils/pipeHandler";
 import { CommandRouter } from "@/cli/commandRouter";
+import { expandShellVariables } from "@/utils/expandShellVariables";
 
 // Helper function to format practice exercises
 function formatPracticeExercises(
@@ -162,6 +166,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   const nvsmSimulator = useRef(new NvsmSimulator());
   const mellanoxSimulator = useRef(new MellanoxSimulator());
   const slurmSimulator = useRef(new SlurmSimulator());
+  const slurmContextRef = useRef<ScenarioContext | undefined>(undefined);
   const containerSimulator = useRef(new ContainerSimulator());
   const bcmSimulator = useRef(new BcmSimulator());
   const cmshSimulator = useRef(new CmshSimulator());
@@ -251,6 +256,7 @@ export const Terminal: React.FC<TerminalProps> = ({
       // Sync seed jobs from scenario context into slurm simulator
       slurmSimulator.current.clearJobs();
       slurmSimulator.current.syncFromContext(currentContext.current);
+      slurmContextRef.current = context;
 
       logger.debug(
         `Terminal: Using scenario context for ${store.activeScenario.id}`,
@@ -263,12 +269,16 @@ export const Terminal: React.FC<TerminalProps> = ({
       if (activeContext) {
         currentContext.current.scenarioContext = activeContext;
         currentContext.current.cluster = activeContext.getCluster();
+        slurmSimulator.current.clearJobs();
+        slurmSimulator.current.syncFromContext(currentContext.current);
+        slurmContextRef.current = activeContext;
         logger.debug("Terminal: Using active incident context");
       } else {
         scenarioContextManager.setActiveContext(null);
         currentContext.current.scenarioContext = undefined;
         currentContext.current.cluster = store.cluster;
         slurmSimulator.current.clearJobs();
+        slurmContextRef.current = undefined;
 
         logger.debug("Terminal: Cleared scenario context");
       }
@@ -512,7 +522,7 @@ export const Terminal: React.FC<TerminalProps> = ({
       }
     });
 
-    router.register("ssh", (cl) => {
+    router.register("ssh", (cl, ctx) => {
       const args = cl.trim().split(/\s+/).slice(1);
       if (args.length === 0) {
         return {
@@ -531,6 +541,16 @@ export const Terminal: React.FC<TerminalProps> = ({
           output: `\x1b[31mssh: Could not resolve hostname ${targetNode}: Name or service not known\x1b[0m`,
           exitCode: 1,
         };
+      }
+      if (args.length > 1) {
+        const remoteCommand = args.slice(1).join(" ");
+        const handler = router.resolve(args[1]);
+        if (!handler)
+          return {
+            output: `bash: ${args[1]}: command not found`,
+            exitCode: 127,
+          };
+        return handler(remoteCommand, { ...ctx, currentNode: targetNode });
       }
       if (targetNode === currentContext.current.currentNode) {
         return {
@@ -1221,6 +1241,12 @@ export const Terminal: React.FC<TerminalProps> = ({
         currentContext.current.scenarioContext = undefined;
         currentContext.current.cluster = useSimulationStore.getState().cluster;
       }
+      if (activeContext !== slurmContextRef.current) {
+        slurmSimulator.current.clearJobs();
+        if (activeContext)
+          slurmSimulator.current.syncFromContext(currentContext.current);
+        slurmContextRef.current = activeContext;
+      }
 
       // Expand $(command) shell substitutions before processing.
       // In a real bash shell these would be expanded by the shell;
@@ -1233,6 +1259,10 @@ export const Terminal: React.FC<TerminalProps> = ({
           if (inner.startsWith("pgrep")) return "12345";
           return "0";
         },
+      );
+      cmdLine = expandShellVariables(
+        cmdLine,
+        currentContext.current.environment,
       );
 
       // Add to history (store the original, unexpanded form)
@@ -1349,7 +1379,8 @@ export const Terminal: React.FC<TerminalProps> = ({
         if (
           !pipeSyntaxError &&
           result.exitCode !== 127 &&
-          !["ssh", "help", "hint"].includes(command)
+          !["help", "hint"].includes(command) &&
+          (command !== "ssh" || parts.length > 2)
         ) {
           onIncidentCommandRef.current?.(originalCmdLine);
         }

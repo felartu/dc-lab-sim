@@ -101,7 +101,7 @@ function mapIncidentFault(fault: {
         gpuId,
         type: "ecc-error" as FaultType,
         severity: "critical",
-        parameters: { singleBit: 150, doubleBit: 1 },
+        parameters: { singleBit: 150, doubleBit: 1, stalled: true },
       };
 
     case "ecc-accumulation":
@@ -110,7 +110,7 @@ function mapIncidentFault(fault: {
         gpuId,
         type: "ecc-error",
         severity: "warning",
-        parameters: { singleBit: 1247, doubleBit: 0 },
+        parameters: { singleBit: 1247, doubleBit: 0, healthStatus: "Warning" },
       };
 
     case "thermal":
@@ -228,6 +228,91 @@ function mapIncidentFault(fault: {
   }
 }
 
+/** Seed the workload described by the briefing before applying its hardware faults. */
+function seedIncidentWorkload(
+  context: ScenarioContext,
+  incident: ComposedIncident,
+): void {
+  const plans: Record<
+    string,
+    {
+      nodeCount: number;
+      state: "RUNNING" | "FAILED";
+      runtime: string;
+      utilization?: number;
+      jobId?: number;
+      failedRank?: number;
+      rankCount?: number;
+    }
+  > = {
+    "gpu-memory-xid48": { nodeCount: 1, state: "RUNNING", runtime: "0:12:00" },
+    "gpu-hang-xid43": {
+      nodeCount: 4,
+      state: "RUNNING",
+      runtime: "1:00:00",
+      utilization: 95,
+    },
+    "nvlink-fabric-degradation": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "1:00:00",
+      utilization: 70,
+    },
+    "thermal-runaway": { nodeCount: 1, state: "RUNNING", runtime: "1:00:00" },
+    "ecc-accumulation-row-remap": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "24:00:00",
+    },
+    "multi-node-job-failure": {
+      nodeCount: 8,
+      state: "FAILED",
+      runtime: "6:00:00",
+      jobId: 84291,
+      failedRank: 12,
+      rankCount: 16,
+    },
+    "power-supply-stress": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "1:00:00",
+    },
+    "combined-nvlink-thermal": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "2:00:00",
+    },
+  };
+  const plan = plans[incident.templateId];
+  const target = incident.faults[0]?.nodeId;
+  if (!plan || !target) return;
+  const nodeIds = [
+    target,
+    ...context
+      .getCluster()
+      .nodes.map((node) => node.id)
+      .filter((id) => id !== target),
+  ].slice(0, plan.nodeCount);
+  applyFaultsToContext(
+    [
+      {
+        nodeId: target,
+        type: "allocate-job",
+        severity: "warning",
+        parameters: {
+          ...plan,
+          nodeIds,
+          jobName: "training",
+          user: "root",
+          partition: "gpu",
+          gpusPerNode: 8,
+        },
+      },
+    ],
+    context,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tip generation
 // ---------------------------------------------------------------------------
@@ -289,6 +374,8 @@ export function useIncidentSession() {
       difficulty: difficulty as "beginner" | "intermediate" | "advanced",
       domain,
     });
+
+    seedIncidentWorkload(context, composed);
 
     // 3. Map composed faults to FaultInjectionConfig and apply
     const primaryFaultConfigs = composed.faults.map(mapIncidentFault);

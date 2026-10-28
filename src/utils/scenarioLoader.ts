@@ -336,6 +336,12 @@ export function applyFaultsToContext(
       case "ecc-error":
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
+            ...(parameters?.stalled
+              ? { utilization: 0, healthStatus: "Critical" }
+              : {}),
+            ...(parameters?.healthStatus
+              ? { healthStatus: parameters.healthStatus }
+              : {}),
             eccErrors: {
               singleBit: parameters?.singleBit ?? 10,
               doubleBit: parameters?.doubleBit ?? 1,
@@ -462,9 +468,13 @@ export function applyFaultsToContext(
         const utilization = parameters?.utilization as number | undefined;
         const memoryPercent = parameters?.memoryPercent as number | undefined;
         const reasonPending = parameters?.reasonPending as string | undefined;
+        const jobId = parameters?.jobId as number | undefined;
+        const failedRank = parameters?.failedRank as number | undefined;
+        const rankCount = parameters?.rankCount as number | undefined;
 
         // Store seed job for SlurmSimulator to pick up
         context.addSeedJob({
+          jobId,
           jobName,
           nodeIds,
           gpusPerNode,
@@ -475,11 +485,13 @@ export function applyFaultsToContext(
           reasonPending,
           utilization,
           memoryPercent,
+          failedRank,
+          rankCount,
         });
 
         // Only RUNNING jobs allocate nodes and GPUs
         if (jobState === "RUNNING") {
-          const seedJobId = 1000 + context.getSeedJobs().length - 1;
+          const seedJobId = jobId ?? 1000 + context.getSeedJobs().length - 1;
           const targetUtil = utilization ?? 85;
           const memPct = memoryPercent ?? 75;
 

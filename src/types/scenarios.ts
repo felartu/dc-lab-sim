@@ -36,6 +36,7 @@ export interface FaultInjectionConfig {
  * and set realistic node/GPU state.
  */
 export interface SeedJob {
+  jobId?: number;
   jobName: string;
   nodeIds: string[];
   gpusPerNode: number;
@@ -46,6 +47,8 @@ export interface SeedJob {
   reasonPending?: string;
   utilization?: number;
   memoryPercent?: number;
+  failedRank?: number;
+  rankCount?: number;
 }
 
 // ============================================================================
