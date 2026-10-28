@@ -110,7 +110,7 @@ export class IncidentComposer {
       faults,
       redHerrings,
       propagationTrigger: template.propagationTrigger,
-      diagnosticPath: [...template.diagnosticPath],
+      diagnosticPath: template.diagnosticPath.map(alignNarrative),
       rootCauseOptions: template.rootCauseOptions.map(alignNarrative),
       correctRootCause: alignNarrative(template.correctRootCause),
       templateDomains: [...template.domains],
