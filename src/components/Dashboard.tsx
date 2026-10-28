@@ -79,14 +79,14 @@ const HealthIndicator: React.FC<{ status: HealthStatus }> = ({ status }) => {
 const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
   // Temperature status with color AND text alternatives for accessibility (WCAG 1.4.1)
   const getTempStatus = (temp: number) => {
-    if (temp > 80)
+    if (temp >= 92)
       return {
         color: "text-red-500",
         symbol: "✕",
         label: "Critical",
         ariaLabel: `Temperature critical: ${Math.round(temp)} degrees Celsius`,
       };
-    if (temp > 70)
+    if (temp >= 83)
       return {
         color: "text-yellow-500",
         symbol: "⚠",
