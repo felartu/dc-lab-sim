@@ -153,6 +153,9 @@ npm run build     # Optimized bundle -> dist/
 npm run preview   # Preview locally
 ```
 
+For an optional local API that syncs a PR branch and manages its Vite process,
+see [PR preview controller](docs/pr-control-api.md).
+
 ---
 
 ## Available Commands
