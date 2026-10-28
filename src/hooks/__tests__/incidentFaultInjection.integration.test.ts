@@ -219,9 +219,12 @@ describe("live incident fault injection", () => {
         (template) => template.id === id,
       )!.correctRootCause.replace(/dgx-\d+/g, nodeId!);
       expect(result.current.rootCauseOptions).toContain(correctRootCause);
+      const diagnosticPath = [...result.current.diagnosticPath];
+      expect(diagnosticPath.length).toBeGreaterThan(0);
       act(() => result.current.submitDiagnosis(correctRootCause));
       expect(result.current.incidentState).toBe("review");
       expect(result.current.reviewData?.correctDiagnosis).toBe(true);
+      expect(result.current.diagnosticPath).toEqual(diagnosticPath);
       expect(scenarioContextManager.getActiveContext()).toBeUndefined();
       unmount();
     },

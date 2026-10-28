@@ -504,9 +504,7 @@ function App() {
             events={reviewData.events}
             commands={reviewData.commands}
             tip={reviewData.tip}
-            onReviewOptimalPath={() => {
-              /* TODO: launch as guided scenario */
-            }}
+            diagnosticPath={diagnosticPath}
             onRestart={() =>
               handleStartIncident(reviewData.difficulty, reviewData.domain)
             }

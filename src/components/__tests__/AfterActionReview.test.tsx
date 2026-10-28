@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { AfterActionReview } from "../AfterActionReview";
 import type { WorkflowScore, PhaseEntry } from "@/simulation/workflowTracker";
 import type { ClusterEvent } from "@/simulation/eventLog";
@@ -72,7 +72,11 @@ function defaultProps() {
     events: createMockEvents(),
     commands: createMockCommands(),
     tip: "Run nvidia-smi -q -d ECC early to isolate memory errors faster.",
-    onReviewOptimalPath: vi.fn(),
+    diagnosticPath: [
+      "nvidia-smi",
+      "nvidia-smi -q -d ECC",
+      "dmesg | grep -i xid",
+    ],
     onRestart: vi.fn(),
     onClose: vi.fn(),
   };
@@ -270,13 +274,35 @@ describe("AfterActionReview", () => {
       ).toBeInTheDocument();
     });
 
-    it("calls onReviewOptimalPath when Review Optimal Path is clicked", () => {
-      const props = defaultProps();
-      render(<AfterActionReview {...props} />);
-      fireEvent.click(
+    it("shows and hides the incident diagnostic commands in order", () => {
+      render(<AfterActionReview {...defaultProps()} />);
+      const button = screen.getByRole("button", {
+        name: /review optimal path/i,
+      });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(button);
+      const path = screen.getByRole("region", {
+        name: /suggested diagnostic commands/i,
+      });
+      expect(
+        within(path)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(defaultProps().diagnosticPath);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(button);
+      expect(
+        screen.queryByRole("region", {
+          name: /suggested diagnostic commands/i,
+        }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("disables the path button when no commands are available", () => {
+      render(<AfterActionReview {...defaultProps()} diagnosticPath={[]} />);
+      expect(
         screen.getByRole("button", { name: /review optimal path/i }),
-      );
-      expect(props.onReviewOptimalPath).toHaveBeenCalled();
+      ).toBeDisabled();
     });
 
     it("renders Try Similar button", () => {
