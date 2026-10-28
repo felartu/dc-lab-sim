@@ -218,6 +218,29 @@ describe("applyFaultsToContext", () => {
     expect(gpu?.temperature).toBe(92);
   });
 
+  it("applies a power cap without leaving draw above the limit", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].gpus[0].powerDraw = 650;
+    const context = new ScenarioContext("test", cluster);
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          gpuId: 0,
+          type: "power",
+          severity: "warning",
+          parameters: { powerLimit: 300 },
+        },
+      ],
+      context,
+    );
+
+    expect(context.getGPU("dgx-00", 0)?.powerLimit).toBe(300);
+    expect(context.getGPU("dgx-00", 0)?.powerDraw).toBe(300);
+    expect(context.getGPU("dgx-00", 1)?.powerLimit).toBe(700);
+  });
+
   it("applies memory-full fault to context", () => {
     const cluster = createTestCluster();
     const context = new ScenarioContext("test", cluster);
