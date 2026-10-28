@@ -13,6 +13,7 @@
 import { useState, useCallback, useRef } from "react";
 import { scenarioContextManager } from "@/store/scenarioContext";
 import type { ScenarioContext } from "@/store/scenarioContext";
+import { useSimulationStore } from "@/store/simulationStore";
 import {
   IncidentComposer,
   type ComposedIncident,
@@ -400,6 +401,12 @@ export function useIncidentSession() {
       difficulty: difficulty as "beginner" | "intermediate" | "advanced",
       domain,
     });
+
+    // Keep the dashboard and terminal on the incident's affected host from
+    // the first moment of the challenge, rather than the previously selected
+    // node.
+    const targetNode = composed.faults[0]?.nodeId;
+    if (targetNode) useSimulationStore.getState().selectNode(targetNode);
 
     seedIncidentWorkload(context, composed);
 
