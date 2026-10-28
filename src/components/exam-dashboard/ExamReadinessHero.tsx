@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useLearningStore } from "@/store/learningStore";
 import { useLearningProgressStore } from "@/store/learningProgressStore";
+import { getGauntletAttemptPercentage } from "@/utils/gauntletScoring";
 
 function formatStudyTime(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -55,8 +56,7 @@ export function ExamReadinessHero() {
   }
   // Gauntlet attempts (pass threshold: 70%)
   for (const a of gauntletAttempts) {
-    const pct =
-      a.totalQuestions > 0 ? Math.round((a.score / a.totalQuestions) * 100) : 0;
+    const pct = getGauntletAttemptPercentage(a);
     allAttempts.push({ percentage: pct, passed: pct >= 70 });
   }
   // Tool Selection quizzes (pass threshold: 80%, stored as `passed` flag)
