@@ -155,4 +155,28 @@ describe("Dashboard", () => {
     render(<Dashboard />);
     expect(screen.getByRole("status", { name: label })).toBeInTheDocument();
   });
+
+  it("escalates GPU and cluster health when a GPU reaches warning temperature", () => {
+    mockNode.gpus[0].temperature = 85;
+    render(<Dashboard />);
+
+    expect(
+      screen.getAllByRole("status", {
+        name: "Status: Warning - Attention needed",
+      }),
+    ).toHaveLength(2);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
+  });
+
+  it("escalates GPU and cluster health when a GPU reaches critical temperature", () => {
+    mockNode.gpus[0].temperature = 95;
+    render(<Dashboard />);
+
+    expect(
+      screen.getAllByRole("status", {
+        name: "Status: Critical - Immediate action required",
+      }),
+    ).toHaveLength(2);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
+  });
 });
