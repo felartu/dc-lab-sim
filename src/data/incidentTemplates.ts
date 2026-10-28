@@ -61,6 +61,7 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
     domains: [1],
     primaryFaults: [
       { faultType: "ecc-error", target: "specific-gpu", gpuId: 3 },
+      { faultType: "xid-48", target: "specific-gpu", gpuId: 3 },
     ],
     propagationTrigger: "xid-48",
     diagnosticPath: [
@@ -95,7 +96,10 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "job to stall waiting for the unresponsive GPU.",
     difficulty: "intermediate",
     domains: [4],
-    primaryFaults: [{ faultType: "gpu-hang", target: "specific-gpu" }],
+    primaryFaults: [
+      { faultType: "gpu-hang", target: "specific-gpu", gpuId: 5 },
+      { faultType: "xid-43", target: "specific-gpu", gpuId: 5 },
+    ],
     propagationTrigger: "xid-43",
     diagnosticPath: [
       "nvidia-smi",
@@ -131,7 +135,10 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "enumerated by the OS and requires a cold reboot or PCIe bus reset to recover.",
     difficulty: "advanced",
     domains: [5],
-    primaryFaults: [{ faultType: "pcie-error", target: "specific-gpu" }],
+    primaryFaults: [
+      { faultType: "xid-79", target: "specific-gpu", gpuId: 2 },
+      { faultType: "slurm-drain", target: "node" },
+    ],
     propagationTrigger: "xid-79",
     diagnosticPath: [
       "nvidia-smi",
@@ -170,7 +177,11 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "collective, reducing overall multi-GPU training throughput.",
     difficulty: "intermediate",
     domains: [2],
-    primaryFaults: [{ faultType: "nvlink-failure", target: "specific-gpu" }],
+    primaryFaults: [1, 2].map((gpuId) => ({
+      faultType: "nvlink-failure",
+      target: "specific-gpu" as const,
+      gpuId,
+    })),
     propagationTrigger: "nvlink-failure",
     diagnosticPath: [
       "nvidia-smi",
@@ -206,7 +217,11 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "damage. If uncorrected, the hottest GPU risks a thermal shutdown (XID 43).",
     difficulty: "beginner",
     domains: [5],
-    primaryFaults: [{ faultType: "thermal", target: "node" }],
+    primaryFaults: Array.from({ length: 8 }, (_, gpuId) => ({
+      faultType: "thermal",
+      target: "specific-gpu" as const,
+      gpuId,
+    })),
     propagationTrigger: "thermal-runaway",
     diagnosticPath: [
       "nvidia-smi",
@@ -243,7 +258,10 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "replacement.",
     difficulty: "advanced",
     domains: [4],
-    primaryFaults: [{ faultType: "ecc-error", target: "specific-gpu" }],
+    primaryFaults: [
+      { faultType: "ecc-accumulation", target: "specific-gpu", gpuId: 6 },
+      { faultType: "xid-92", target: "specific-gpu", gpuId: 6 },
+    ],
     propagationTrigger: "ecc-accumulation",
     diagnosticPath: [
       "nvidia-smi -q -d ECC",
@@ -281,7 +299,11 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
       "HealthCheckProgram subsequently drained dgx-19.",
     difficulty: "intermediate",
     domains: [4],
-    primaryFaults: [{ faultType: "gpu-hang", target: "specific-gpu" }],
+    primaryFaults: [
+      { faultType: "gpu-hang", target: "specific-gpu", gpuId: 7 },
+      { faultType: "xid-43", target: "specific-gpu", gpuId: 7 },
+      { faultType: "slurm-drain", target: "node" },
+    ],
     propagationTrigger: "xid-43",
     diagnosticPath: [
       "sacct -j 84291 --format=JobID,NodeList,ExitCode,State",
@@ -399,8 +421,16 @@ export const INCIDENT_TEMPLATES: IncidentTemplate[] = [
     difficulty: "advanced",
     domains: [5, 2],
     primaryFaults: [
-      { faultType: "nvlink-failure", target: "specific-gpu" },
-      { faultType: "thermal", target: "node" },
+      ...[3, 4].map((gpuId) => ({
+        faultType: "nvlink-failure",
+        target: "specific-gpu" as const,
+        gpuId,
+      })),
+      ...[6, 7].map((gpuId) => ({
+        faultType: "thermal",
+        target: "specific-gpu" as const,
+        gpuId,
+      })),
     ],
     propagationTrigger: "nvlink-failure",
     diagnosticPath: [
