@@ -13,6 +13,7 @@
 import { useState, useCallback, useRef } from "react";
 import { scenarioContextManager } from "@/store/scenarioContext";
 import type { ScenarioContext } from "@/store/scenarioContext";
+import { useSimulationStore } from "@/store/simulationStore";
 import {
   IncidentComposer,
   type ComposedIncident,
@@ -36,6 +37,7 @@ import type { ClusterEvent } from "@/simulation/eventLog";
 export type IncidentState = "idle" | "active" | "review";
 
 export interface ReviewData {
+  startedAt: number;
   score: WorkflowScore;
   correctDiagnosis: boolean;
   selectedRootCause: string;
@@ -95,14 +97,40 @@ function mapIncidentFault(fault: {
         parameters: { targetTemp: 82 },
       };
 
-    case "ecc-accumulation":
     case "ecc-error":
       return {
         nodeId,
         gpuId,
         type: "ecc-error" as FaultType,
         severity: "critical",
-        parameters: { singleBit: 150, doubleBit: 1 },
+        parameters: { singleBit: 150, doubleBit: 1, stalled: true },
+      };
+
+    case "ecc-accumulation":
+      return {
+        nodeId,
+        gpuId,
+        type: "ecc-error",
+        severity: "warning",
+        parameters: { singleBit: 1247, doubleBit: 0, healthStatus: "Warning" },
+      };
+
+    case "thermal":
+      return {
+        nodeId,
+        gpuId,
+        type: "thermal",
+        severity: "critical",
+        parameters: { targetTemp: 95, clocksSM: 600 },
+      };
+
+    case "slurm-drain":
+      return {
+        nodeId,
+        gpuId,
+        type: "set-slurm-state",
+        severity: "warning",
+        parameters: { state: "drain", reason: "GPU not responding" },
       };
 
     case "single-bit-ecc":
@@ -120,6 +148,22 @@ function mapIncidentFault(fault: {
         gpuId,
         type: "nvlink-failure" as FaultType,
         severity: "critical",
+      };
+
+    case "ib-link-down":
+      return {
+        nodeId,
+        gpuId,
+        type: "ib-link-down" as FaultType,
+        severity: "critical",
+      };
+
+    case "driver-error":
+      return {
+        nodeId,
+        type: "driver-error",
+        severity: "critical",
+        parameters: { nodeWide: true },
       };
 
     case "gpu-hang":
@@ -148,6 +192,41 @@ function mapIncidentFault(fault: {
         parameters: { powerDraw: 700 },
       };
 
+    case "power-cap":
+      return {
+        nodeId,
+        gpuId,
+        type: "power" as FaultType,
+        severity: "warning",
+        parameters: { powerLimit: 300 },
+      };
+
+    case "psu-stress":
+      return {
+        nodeId,
+        type: "bmc-sensor",
+        severity: "warning",
+        parameters: {
+          sensorName: "PSU1 Power",
+          reading: 2850,
+          upperWarning: 2700,
+          upperCritical: 3000,
+        },
+      };
+
+    case "inlet-42":
+    case "inlet-39":
+      return {
+        nodeId,
+        type: "bmc-sensor",
+        severity: "warning",
+        parameters: {
+          sensorName: "Inlet Temp",
+          reading: faultType === "inlet-42" ? 42 : 39,
+          upperWarning: 35,
+        },
+      };
+
     default:
       // Best-effort: use faultType as the type directly
       return {
@@ -156,6 +235,106 @@ function mapIncidentFault(fault: {
         type: faultType as FaultType,
         severity: "warning",
       };
+  }
+}
+
+/** Seed the workload described by the briefing before applying its hardware faults. */
+function seedIncidentWorkload(
+  context: ScenarioContext,
+  incident: ComposedIncident,
+): void {
+  const plans: Record<
+    string,
+    {
+      nodeCount: number;
+      state: "RUNNING" | "FAILED";
+      runtime: string;
+      utilization?: number;
+      utilizationByGpu?: readonly number[];
+      jobId?: number;
+      failedRank?: number;
+      rankCount?: number;
+    }
+  > = {
+    "gpu-memory-xid48": { nodeCount: 1, state: "RUNNING", runtime: "0:12:00" },
+    "gpu-hang-xid43": {
+      nodeCount: 4,
+      state: "RUNNING",
+      runtime: "1:00:00",
+      utilization: 100,
+    },
+    "nvlink-fabric-degradation": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "1:00:00",
+      utilization: 70,
+    },
+    "thermal-runaway": { nodeCount: 1, state: "RUNNING", runtime: "1:00:00" },
+    "ecc-accumulation-row-remap": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "24:00:00",
+    },
+    "multi-node-job-failure": {
+      nodeCount: 8,
+      state: "FAILED",
+      runtime: "6:00:00",
+      jobId: 84291,
+      failedRank: 12,
+      rankCount: 16,
+    },
+    "power-supply-stress": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "1:00:00",
+    },
+    "combined-nvlink-thermal": {
+      nodeCount: 1,
+      state: "RUNNING",
+      runtime: "2:00:00",
+      utilizationByGpu: [30, 45, 65, 90, 40, 75, 55, 35],
+    },
+  };
+  const plan = plans[incident.templateId];
+  const target = incident.faults[0]?.nodeId;
+  if (!plan || !target) return;
+  const nodeIds = [
+    target,
+    ...context
+      .getCluster()
+      .nodes.map((node) => node.id)
+      .filter((id) => id !== target),
+  ].slice(0, plan.nodeCount);
+  applyFaultsToContext(
+    [
+      {
+        nodeId: target,
+        type: "allocate-job",
+        severity: "warning",
+        parameters: {
+          ...plan,
+          nodeIds,
+          jobName: "training",
+          user: "root",
+          partition: "gpu",
+          gpusPerNode: 8,
+        },
+      },
+    ],
+    context,
+  );
+
+  if (plan.utilizationByGpu) {
+    for (const [gpuId, utilization] of plan.utilizationByGpu.entries()) {
+      const gpu = context.getGPU(target, gpuId);
+      if (!gpu) continue;
+      context.updateGPU(target, gpuId, {
+        utilization,
+        powerDraw: Math.round(
+          gpu.powerLimit * (0.2 + (utilization / 100) * 0.6),
+        ),
+      });
+    }
   }
 }
 
@@ -205,11 +384,13 @@ export function useIncidentSession() {
   const hintsUsedRef = useRef(0);
   const difficultyRef = useRef<string>("beginner");
   const domainRef = useRef<number | undefined>(undefined);
+  const startedAtRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // startIncident
   // -------------------------------------------------------------------------
   const startIncident = useCallback((difficulty: string, domain?: number) => {
+    startedAtRef.current = Date.now();
     // 1. Create ScenarioContext with unique ID
     const contextId = `incident-${Date.now()}`;
     const context = scenarioContextManager.createContext(contextId);
@@ -220,6 +401,14 @@ export function useIncidentSession() {
       difficulty: difficulty as "beginner" | "intermediate" | "advanced",
       domain,
     });
+
+    // Keep the dashboard and terminal on the incident's affected host from
+    // the first moment of the challenge, rather than the previously selected
+    // node.
+    const targetNode = composed.faults[0]?.nodeId;
+    if (targetNode) useSimulationStore.getState().selectNode(targetNode);
+
+    seedIncidentWorkload(context, composed);
 
     // 3. Map composed faults to FaultInjectionConfig and apply
     const primaryFaultConfigs = composed.faults.map(mapIncidentFault);
@@ -351,6 +540,7 @@ export function useIncidentSession() {
 
       // 5. Build review data
       const review: ReviewData = {
+        startedAt: startedAtRef.current,
         score,
         correctDiagnosis,
         selectedRootCause,

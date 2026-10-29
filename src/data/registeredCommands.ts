@@ -80,6 +80,7 @@ export const TERMINAL_COMMANDS = new Set<string>([
   "hostnamectl",
   "timedatectl",
   "lsmod",
+  "dkms",
   "modinfo",
   "top",
   "ps",

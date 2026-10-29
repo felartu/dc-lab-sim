@@ -49,15 +49,23 @@ describe("InlineQuiz", () => {
     expect(screen.getByText(/not quite/i)).toBeInTheDocument();
   });
 
-  it("should call onComplete with result after delay", () => {
+  it("keeps the explanation visible for 10 seconds before completing", () => {
     const onComplete = vi.fn();
     render(<InlineQuiz quiz={mockQuiz} onComplete={onComplete} />);
     fireEvent.click(screen.getByText("System Event Log"));
     // Not called immediately
     expect(onComplete).not.toHaveBeenCalled();
-    // Called after the delay
+    expect(screen.getByText("SEL = System Event Log.")).toBeInTheDocument();
+
+    // The feedback remains visible until the full 10-second delay elapses.
     act(() => {
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(9999);
+    });
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(screen.getByText("SEL = System Event Log.")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
     expect(onComplete).toHaveBeenCalledWith(true);
   });
@@ -68,7 +76,7 @@ describe("InlineQuiz", () => {
     fireEvent.click(screen.getByText("Serial Error Log"));
     expect(onComplete).not.toHaveBeenCalled();
     act(() => {
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(10_000);
     });
     expect(onComplete).toHaveBeenCalledWith(false);
   });

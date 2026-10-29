@@ -205,14 +205,11 @@ export class WorkflowTracker {
   }
 
   /**
-   * Methodology (0-20): rewards phases that progress in the canonical order.
-   *
-   * For each consecutive pair of entries, if the second phase is the same or
-   * later in the canonical order we award a point. The ratio of "in-order"
-   * transitions to total transitions is scaled to [0, 20].
+   * Methodology (0-20): rewards covering distinct phases in canonical order.
+   * Repeating one phase cannot earn full marks.
    */
   private scoreMethodology(): number {
-    if (this.history.length <= 1) return MAX_SUBSCORE / 2; // neutral baseline
+    if (this.history.length === 0) return 0;
 
     let inOrder = 0;
     const transitions = this.history.length - 1;
@@ -225,7 +222,11 @@ export class WorkflowTracker {
       }
     }
 
-    return Math.round((inOrder / transitions) * MAX_SUBSCORE);
+    const coverage =
+      new Set(this.history.map((entry) => entry.phase)).size /
+      PHASE_ORDER.length;
+    const ordering = transitions === 0 ? 1 : inOrder / transitions;
+    return Math.round(MAX_SUBSCORE * coverage * (0.5 + 0.5 * ordering));
   }
 
   /**
@@ -235,10 +236,10 @@ export class WorkflowTracker {
    */
   private scoreEfficiency(): number {
     const count = this.history.length;
-    if (count === 0) return MAX_SUBSCORE;
+    if (count === 0) return 0;
     // Score = baseline / count * (MAX_SUBSCORE / 2), capped at MAX_SUBSCORE
     const raw = (EFFICIENCY_BASELINE / count) * (MAX_SUBSCORE / 2);
-    return Math.min(MAX_SUBSCORE, Math.round(raw));
+    return Math.round(Math.min(MAX_SUBSCORE, raw) * Math.min(1, count / 3));
   }
 
   /**

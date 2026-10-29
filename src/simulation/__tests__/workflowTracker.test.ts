@@ -53,6 +53,20 @@ describe("WorkflowTracker", () => {
     );
   });
 
+  it("does not award full methodology for repeating one phase or efficiency for no work", () => {
+    const tracker = new WorkflowTracker();
+    expect(
+      tracker.calculateScore({ correctDiagnosis: true, collateralDamage: 0 })
+        .efficiency,
+    ).toBe(0);
+    tracker.recordCommand("nvidia-smi nvlink -e");
+    tracker.recordCommand("nvidia-smi nvlink -e | grep errors");
+    expect(
+      tracker.calculateScore({ correctDiagnosis: true, collateralDamage: 0 })
+        .methodology,
+    ).toBeLessThan(20);
+  });
+
   it("should score efficiency based on command count", () => {
     const efficient = new WorkflowTracker();
     efficient.recordCommand("dmesg | grep -i xid");

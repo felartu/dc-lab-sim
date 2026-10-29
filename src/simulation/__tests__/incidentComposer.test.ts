@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { IncidentComposer } from "../incidentComposer";
 
 describe("IncidentComposer", () => {
@@ -16,6 +16,47 @@ describe("IncidentComposer", () => {
     const incident = composer.compose({ difficulty: "beginner", domain: 1 });
     expect(incident).toBeDefined();
     expect(incident.templateDomains).toContain(1);
+  });
+
+  it("keeps the selected domain when its requested difficulty has no template", () => {
+    const incident = composer.compose({ difficulty: "beginner", domain: 2 });
+    expect(incident.templateDomains).toContain(2);
+  });
+
+  it("keeps Domain 1 selected when intermediate has no Domain 1 template", () => {
+    const incident = composer.compose({
+      difficulty: "intermediate",
+      domain: 1,
+    });
+    expect(incident.templateDomains).toContain(1);
+  });
+
+  it("injects the ECC fault on the GPU named in the Domain 1 briefing", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const incident = composer.compose({
+        difficulty: "beginner",
+        domain: 1,
+      });
+
+      expect(incident.templateId).toBe("gpu-memory-xid48");
+      expect(incident.faults[0].gpuId).toBe(3);
+      expect(incident.situation).toContain("GPU 3");
+      expect(incident.correctRootCause).toContain("GPU 3");
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("aligns the incident briefing hostname with its injected target node", () => {
+    const incident = composer.compose({
+      difficulty: "intermediate",
+      domain: 2,
+    });
+    expect(incident.situation).toContain(incident.faults[0].nodeId);
+    expect(new Set(incident.situation.match(/dgx-\d+/g))).toEqual(
+      new Set([incident.faults[0].nodeId]),
+    );
   });
 
   it("should add red herrings at intermediate difficulty", () => {
@@ -45,25 +86,28 @@ describe("IncidentComposer", () => {
     expect(incident.rootCauseOptions).toContain(incident.correctRootCause);
   });
 
-  it("should assign gpuId 0 for node-level faults", () => {
-    // Compose many incidents and check any with node-level primary faults
-    const incidents = Array.from({ length: 20 }, () =>
-      composer.compose({ difficulty: "beginner" }),
-    );
-    // power-supply-stress template has target: "node"
-    const nodeIncidents = incidents.filter(
-      (i) => i.templateId === "power-supply-stress",
-    );
-    for (const incident of nodeIncidents) {
-      for (const fault of incident.faults) {
-        expect(fault.gpuId).toBe(0);
-      }
-    }
-    // If none matched, verify the logic by testing directly:
-    // Any incident whose template has node-level faults should get gpuId 0
-    for (const incident of incidents) {
-      // All faults come from the same template, so we verify via the compose result
-      expect(incident.faults.every((f) => f.gpuId >= 0)).toBe(true);
+  it("targets GPUs 0-3 for the Domain 1 power-cap incident", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    try {
+      const incident = composer.compose({
+        difficulty: "beginner",
+        domain: 1,
+      });
+
+      expect(incident.templateId).toBe("power-supply-stress");
+      expect(
+        incident.faults
+          .filter((fault) => fault.faultType === "power-cap")
+          .map((fault) => fault.gpuId),
+      ).toEqual([0, 1, 2, 3]);
+      expect(new Set(incident.faults.map((fault) => fault.nodeId)).size).toBe(
+        1,
+      );
+      expect(incident.situation).toContain(
+        "GPUs 0-3 have power limits reduced from 400W to 300W",
+      );
+    } finally {
+      randomSpy.mockRestore();
     }
   });
 });

@@ -1,4 +1,7 @@
-const data = require('./src/data/quizQuestions.json');
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const data = require("./src/data/quizQuestions.json");
 
 console.log('=== Quiz Questions Validation ===\n');
 console.log('Total questions:', data.questions.length);

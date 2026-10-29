@@ -10,10 +10,13 @@
  * - Action buttons: Review Optimal Path, Try Similar, Exit
  */
 
+import { useId, useState } from "react";
 import type { WorkflowScore, PhaseEntry } from "@/simulation/workflowTracker";
 import type { ClusterEvent } from "@/simulation/eventLog";
 
 interface AfterActionReviewProps {
+  /** Incident start time in Unix milliseconds */
+  startedAt: number;
   /** Composite workflow score with 5 sub-dimensions */
   score: WorkflowScore;
   /** Whether the user diagnosed correctly */
@@ -28,8 +31,8 @@ interface AfterActionReviewProps {
   commands: PhaseEntry[];
   /** Actionable improvement tip */
   tip: string;
-  /** Called when user clicks Review Optimal Path */
-  onReviewOptimalPath: () => void;
+  /** Suggested diagnostic commands for this incident */
+  diagnosticPath: string[];
   /** Called when user clicks Try Similar */
   onRestart: () => void;
   /** Called when user clicks Exit */
@@ -83,8 +86,8 @@ function getSeverityColor(severity: string): string {
   }
 }
 
-function formatTimestamp(ts: number): string {
-  const seconds = (ts / 1000).toFixed(1);
+function formatTimestamp(ts: number, startedAt: number): string {
+  const seconds = (Math.max(0, ts - startedAt) / 1000).toFixed(1);
   return `${seconds}s`;
 }
 
@@ -128,6 +131,7 @@ function buildTimeline(
 // ---------------------------------------------------------------------------
 
 export function AfterActionReview({
+  startedAt,
   score,
   correctDiagnosis,
   selectedRootCause,
@@ -135,11 +139,13 @@ export function AfterActionReview({
   events,
   commands,
   tip,
-  onReviewOptimalPath,
+  diagnosticPath,
   onRestart,
   onClose,
 }: AfterActionReviewProps) {
   const timeline = buildTimeline(events, commands);
+  const [showOptimalPath, setShowOptimalPath] = useState(false);
+  const pathId = useId();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
@@ -247,7 +253,7 @@ export function AfterActionReview({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-gray-500">
-                            {formatTimestamp(evt.timestamp)}
+                            {formatTimestamp(evt.timestamp, startedAt)}
                           </span>
                           <span className="rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
                             {evt.type}
@@ -275,7 +281,7 @@ export function AfterActionReview({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-gray-500">
-                            {formatTimestamp(cmd.timestamp)}
+                            {formatTimestamp(cmd.timestamp, startedAt)}
                           </span>
                           <span className="rounded bg-nvidia-green/20 px-1.5 py-0.5 text-xs text-nvidia-green">
                             {cmd.phase}
@@ -305,11 +311,36 @@ export function AfterActionReview({
 
         {/* Footer - Action Buttons */}
         <div className="space-y-2 border-t border-gray-700 p-4">
+          {showOptimalPath && (
+            <section
+              id={pathId}
+              aria-label="Suggested diagnostic commands"
+              className="max-h-48 overflow-y-auto rounded border border-gray-600 bg-gray-900 p-3"
+            >
+              <h3 className="mb-2 text-sm font-semibold text-nvidia-green">
+                Suggested diagnostic commands
+              </h3>
+              <p className="mb-2 text-xs text-gray-300">
+                Run these in order on the affected node unless a command
+                specifies another node.
+              </p>
+              <ol className="list-inside list-decimal space-y-1 text-sm text-gray-200">
+                {diagnosticPath.map((command, index) => (
+                  <li key={`${index}-${command}`}>
+                    <code>{command}</code>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
           <button
-            onClick={onReviewOptimalPath}
+            onClick={() => setShowOptimalPath((visible) => !visible)}
+            aria-expanded={showOptimalPath}
+            aria-controls={pathId}
+            disabled={diagnosticPath.length === 0}
             className="w-full rounded border border-nvidia-green px-4 py-2 text-sm font-semibold text-nvidia-green transition-colors hover:bg-nvidia-green/10"
           >
-            Review Optimal Path
+            {showOptimalPath ? "Hide Optimal Path" : "Review Optimal Path"}
           </button>
           <button
             onClick={onRestart}

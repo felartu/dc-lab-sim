@@ -42,21 +42,10 @@ let mockLearningState: {
   >;
 };
 
-let mockCompletedScenarios: string[];
-
 vi.mock("@/store/learningProgressStore", () => ({
   useLearningProgressStore: vi.fn(
     (selector?: (s: Record<string, unknown>) => unknown) =>
       selector ? selector(mockLearningState) : mockLearningState,
-  ),
-}));
-
-vi.mock("@/store/simulationStore", () => ({
-  useSimulationStore: vi.fn(
-    (selector?: (s: Record<string, unknown>) => unknown) => {
-      const state = { completedScenarios: mockCompletedScenarios };
-      return selector ? selector(state) : state;
-    },
   ),
 }));
 
@@ -80,12 +69,6 @@ function defaultProps() {
 describe("IncidentLauncher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCompletedScenarios = [
-      "scenario-1",
-      "scenario-2",
-      "scenario-3",
-      "scenario-4",
-    ];
     mockLearningState = {
       incidentRating: 1000,
       incidentHistory: [],
@@ -185,14 +168,13 @@ describe("IncidentLauncher", () => {
   });
 
   // --------------------------------------------------------------------------
-  // 7. Disables start button when < 3 completed scenarios
+  // 7. Completed missions are not required to start an incident
   // --------------------------------------------------------------------------
-  it("disables start button when fewer than 3 scenarios completed", () => {
-    mockCompletedScenarios = ["scenario-1", "scenario-2"];
+  it("enables start button when no missions are completed", () => {
     const props = defaultProps();
     render(<IncidentLauncher {...props} />);
     const button = screen.getByRole("button", { name: /start incident/i });
-    expect(button).toBeDisabled();
+    expect(button).toBeEnabled();
   });
 
   // --------------------------------------------------------------------------
@@ -215,7 +197,6 @@ describe("IncidentLauncher", () => {
   // 9. Shows prerequisite message when locked
   // --------------------------------------------------------------------------
   it("shows prerequisite message when prerequisites not met", () => {
-    mockCompletedScenarios = ["scenario-1"];
     mockLearningState = {
       ...mockLearningState,
       familyQuizScores: {},
@@ -223,8 +204,8 @@ describe("IncidentLauncher", () => {
     const props = defaultProps();
     render(<IncidentLauncher {...props} />);
     expect(
-      screen.getByText(/complete at least 3 missions/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/complete at least 3 missions/i),
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/pass at least 2 quizzes/i)).toBeInTheDocument();
   });
 
@@ -281,7 +262,10 @@ describe("IncidentLauncher", () => {
   // 14. Does not call onStartIncident when button is disabled
   // --------------------------------------------------------------------------
   it("does not call onStartIncident when button is disabled", () => {
-    mockCompletedScenarios = [];
+    mockLearningState = {
+      ...mockLearningState,
+      familyQuizScores: {},
+    };
     const props = defaultProps();
     render(<IncidentLauncher {...props} />);
     const button = screen.getByRole("button", { name: /start incident/i });

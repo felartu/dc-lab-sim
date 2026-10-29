@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { useLearningProgressStore } from "@/store/learningProgressStore";
 import { useLearningStore } from "@/store/learningStore";
+import { getGauntletAttemptPercentage } from "@/utils/gauntletScoring";
 import { ProgressRing } from "./ProgressRing";
 import commandFamiliesData from "@/data/commandFamilies.json";
 
@@ -61,15 +62,13 @@ export const OverallProgressDashboard: React.FC = () => {
       return { attempts: 0, bestScore: 0, avgScore: 0, passed: 0 };
     }
 
-    const scores = gauntletAttempts.map((a) =>
-      Math.round((a.score / a.totalQuestions) * 100),
-    );
+    const scores = gauntletAttempts.map(getGauntletAttemptPercentage);
     const bestScore = Math.max(...scores);
     const avgScore = Math.round(
       scores.reduce((sum, s) => sum + s, 0) / scores.length,
     );
     const passed = gauntletAttempts.filter(
-      (a) => a.score / a.totalQuestions >= 0.7,
+      (attempt) => getGauntletAttemptPercentage(attempt) >= 70,
     ).length;
 
     return {

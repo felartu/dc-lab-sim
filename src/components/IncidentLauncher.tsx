@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Zap, Lock, Trophy, ChevronRight } from "lucide-react";
 import { useLearningProgressStore } from "@/store/learningProgressStore";
-import { useSimulationStore } from "@/store/simulationStore";
 import { DifficultyScaler } from "@/simulation/difficultyScaler";
 
 // ============================================================================
@@ -31,7 +30,6 @@ const DOMAIN_OPTIONS = [
   { value: "5", label: "Domain 5 - Troubleshooting & Optimization" },
 ];
 
-const MIN_COMPLETED_SCENARIOS = 3;
 const MIN_PASSED_QUIZZES = 2;
 
 // ============================================================================
@@ -45,26 +43,22 @@ export function IncidentLauncher({ onStartIncident }: IncidentLauncherProps) {
   const incidentRating = useLearningProgressStore((s) => s.incidentRating);
   const incidentHistory = useLearningProgressStore((s) => s.incidentHistory);
   const familyQuizScores = useLearningProgressStore((s) => s.familyQuizScores);
-  const completedScenarios = useSimulationStore((s) => s.completedScenarios);
 
   // Compute recommended difficulty from rating
   const scaler = new DifficultyScaler(incidentRating);
   const recommendedDifficulty = scaler.getRecommendedDifficulty();
 
-  // Prerequisite gate
-  const scenariosCompleted =
-    completedScenarios.length >= MIN_COMPLETED_SCENARIOS;
+  // Incidents are available without completing missions; quizzes remain required.
   const passedQuizCount = Object.values(familyQuizScores).filter(
     (q) => q.passed,
   ).length;
   const quizzesPassed = passedQuizCount >= MIN_PASSED_QUIZZES;
-  const prerequisitesMet = scenariosCompleted && quizzesPassed;
 
   // Sort history by date, most recent first
   const sortedHistory = [...incidentHistory].sort((a, b) => b.date - a.date);
 
   function handleStart() {
-    if (!prerequisitesMet) return;
+    if (!quizzesPassed) return;
     const domain = selectedDomain ? parseInt(selectedDomain, 10) : undefined;
     onStartIncident(recommendedDifficulty, domain);
   }
@@ -80,9 +74,9 @@ export function IncidentLauncher({ onStartIncident }: IncidentLauncherProps) {
         <h2 className="text-2xl font-bold text-nvidia-green">Live Incidents</h2>
       </div>
       <p className="text-gray-400 text-sm mb-6">
-        Timed, adaptive troubleshooting challenges — scored, no hints. Unlocks
-        after 3 completed missions. (For free, unscored practice, use the
-        Sandbox tab in the Simulator.)
+        Timed, adaptive troubleshooting challenges — scored, no hints. Pass two
+        tool quizzes to unlock. (For free, unscored practice, use the Sandbox
+        tab in the Simulator.)
       </p>
 
       {/* Rating and controls card */}
@@ -123,14 +117,14 @@ export function IncidentLauncher({ onStartIncident }: IncidentLauncherProps) {
 
             <button
               onClick={handleStart}
-              disabled={!prerequisitesMet}
+              disabled={!quizzesPassed}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-colors ${
-                prerequisitesMet
+                quizzesPassed
                   ? "bg-nvidia-green text-black hover:bg-nvidia-green/90"
                   : "bg-gray-700 text-gray-500 cursor-not-allowed"
               }`}
             >
-              {prerequisitesMet ? (
+              {quizzesPassed ? (
                 <Zap className="w-4 h-4" />
               ) : (
                 <Lock className="w-4 h-4" />
@@ -142,25 +136,17 @@ export function IncidentLauncher({ onStartIncident }: IncidentLauncherProps) {
         </div>
 
         {/* Prerequisite message when locked */}
-        {!prerequisitesMet && (
+        {!quizzesPassed && (
           <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
             <div className="flex items-center gap-2 text-yellow-400 text-sm font-medium mb-2">
               <Lock className="w-4 h-4" />
               Prerequisites Required
             </div>
             <ul className="text-sm text-gray-400 space-y-1 ml-6 list-disc">
-              {!scenariosCompleted && (
-                <li>
-                  Complete at least {MIN_COMPLETED_SCENARIOS} missions (
-                  {completedScenarios.length}/{MIN_COMPLETED_SCENARIOS})
-                </li>
-              )}
-              {!quizzesPassed && (
-                <li>
-                  Pass at least {MIN_PASSED_QUIZZES} quizzes ({passedQuizCount}/
-                  {MIN_PASSED_QUIZZES})
-                </li>
-              )}
+              <li>
+                Pass at least {MIN_PASSED_QUIZZES} quizzes ({passedQuizCount}/
+                {MIN_PASSED_QUIZZES})
+              </li>
             </ul>
           </div>
         )}

@@ -3,10 +3,9 @@ import React, {
   useState,
   useRef,
   useCallback,
-  useMemo,
 } from "react";
 import { useSimulationStore } from "@/store/simulationStore";
-import { scenarioContextManager } from "@/store/scenarioContext";
+import { useEffectiveCluster } from "@/hooks/useEffectiveCluster";
 import {
   Activity,
   HardDrive,
@@ -34,35 +33,6 @@ import {
 } from "@/utils/scenarioVisualizationMap";
 import { ALL_SYSTEM_TYPES, getSystemDisplayName } from "@/data/hardwareSpecs";
 import type { SystemType } from "@/data/hardwareSpecs";
-
-/**
- * Hook that returns the effective cluster for Dashboard components.
- * When a ScenarioContext is active, returns its isolated cluster;
- * otherwise falls back to the global store cluster.
- * Polls at 200ms for mutation reactivity.
- */
-function useEffectiveCluster() {
-  const globalCluster = useSimulationStore((state) => state.cluster);
-  const [scenarioVersion, setScenarioVersion] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const ctx = scenarioContextManager.getActiveContext();
-      if (ctx) {
-        setScenarioVersion(ctx.getMutationCount());
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, []);
-
-  const effectiveCluster = useMemo(() => {
-    const activeContext = scenarioContextManager.getActiveContext();
-    return activeContext ? activeContext.getCluster() : globalCluster;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalCluster, scenarioVersion]);
-
-  return effectiveCluster;
-}
 
 const HealthIndicator: React.FC<{ status: HealthStatus }> = ({ status }) => {
   const config = {
@@ -106,17 +76,30 @@ const HealthIndicator: React.FC<{ status: HealthStatus }> = ({ status }) => {
   );
 };
 
+const GPU_TEMP_WARNING_C = 83;
+const GPU_TEMP_CRITICAL_C = 92;
+
+function getGPUHealthStatus(
+  gpu: Pick<GPU, "healthStatus" | "temperature">,
+): HealthStatus {
+  if (gpu.healthStatus === "Critical" || gpu.temperature >= GPU_TEMP_CRITICAL_C)
+    return "Critical";
+  if (gpu.healthStatus === "Warning" || gpu.temperature >= GPU_TEMP_WARNING_C)
+    return "Warning";
+  return gpu.healthStatus;
+}
+
 const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
   // Temperature status with color AND text alternatives for accessibility (WCAG 1.4.1)
   const getTempStatus = (temp: number) => {
-    if (temp > 80)
+    if (temp >= GPU_TEMP_CRITICAL_C)
       return {
         color: "text-red-500",
         symbol: "✕",
         label: "Critical",
         ariaLabel: `Temperature critical: ${Math.round(temp)} degrees Celsius`,
       };
-    if (temp > 70)
+    if (temp >= GPU_TEMP_WARNING_C)
       return {
         color: "text-yellow-500",
         symbol: "⚠",
@@ -139,7 +122,7 @@ const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
         <h3 className="text-sm font-semibold text-nvidia-green">
           GPU {gpu.id}
         </h3>
-        <HealthIndicator status={gpu.healthStatus} />
+        <HealthIndicator status={getGPUHealthStatus(gpu)} />
       </div>
       <p className="text-xs text-gray-400 truncate mb-3">{gpu.name}</p>
 
@@ -227,7 +210,8 @@ const GPUCard: React.FC<{ gpu: GPU; nodeId: string }> = ({ gpu }) => {
 };
 
 const NodeSelector: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectedNode = useSimulationStore((state) => state.selectedNode);
   const selectNode = useSimulationStore((state) => state.selectNode);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -345,7 +329,8 @@ const SystemTypeSelector: React.FC = () => {
 };
 
 const ClusterHealthSummary: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectNode = useSimulationStore((state) => state.selectNode);
   const [alertExpanded, setAlertExpanded] = useState(false);
 
@@ -357,13 +342,13 @@ const ClusterHealthSummary: React.FC = () => {
   const healthyGPUs = effectiveCluster.nodes.reduce(
     (sum, node) =>
       sum +
-      (node?.gpus?.filter((gpu) => gpu.healthStatus === "OK").length ?? 0),
+      (node?.gpus?.filter((gpu) => getGPUHealthStatus(gpu) === "OK").length ?? 0),
     0,
   );
   const criticalGPUs = effectiveCluster.nodes.reduce(
     (sum, node) =>
       sum +
-      (node?.gpus?.filter((gpu) => gpu.healthStatus === "Critical").length ??
+      (node?.gpus?.filter((gpu) => getGPUHealthStatus(gpu) === "Critical").length ??
         0),
     0,
   );
@@ -371,7 +356,7 @@ const ClusterHealthSummary: React.FC = () => {
   // Gather critical GPU details for expandable view
   const criticalGPUDetails = effectiveCluster.nodes.flatMap((node) =>
     node.gpus
-      .filter((gpu) => gpu.healthStatus === "Critical")
+      .filter((gpu) => getGPUHealthStatus(gpu) === "Critical")
       .map((gpu) => ({
         nodeId: node.id,
         gpuId: gpu.id,
@@ -490,7 +475,8 @@ const ClusterHealthSummary: React.FC = () => {
 type DashboardView = "overview" | "metrics" | "topology" | "network";
 
 export const Dashboard: React.FC = () => {
-  const effectiveCluster = useEffectiveCluster();
+  const globalCluster = useSimulationStore((state) => state.cluster);
+  const effectiveCluster = useEffectiveCluster(globalCluster);
   const selectedNode = useSimulationStore((state) => state.selectedNode);
   const isRunning = useSimulationStore((state) => state.isRunning);
   const requestedVisualizationView = useSimulationStore(

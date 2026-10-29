@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FaultInjectionConfig } from "@/types/scenarios";
 import type { ClusterConfig } from "@/types/hardware";
+import { BasicSystemSimulator } from "@/simulators/basicSystemSimulator";
+import { IpmitoolSimulator } from "@/simulators/ipmitoolSimulator";
+import { NvidiaSmiSimulator } from "@/simulators/nvidiaSmiSimulator";
+import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
+import { parse } from "@/utils/commandParser";
 
 // ── Mock data for the simulation store ────────────────────────────
 
@@ -321,6 +326,10 @@ describe("scenarioLoader", () => {
           severity: "Critical",
         }),
       );
+      expect(mockUpdateGPU).toHaveBeenCalledWith("dgx-00", 0, {
+        utilization: 0,
+        healthStatus: "Critical",
+      });
     });
 
     it("applies thermal fault to global store", () => {
@@ -749,12 +758,51 @@ describe("scenarioLoader", () => {
     let mockClearAll: ReturnType<typeof vi.fn>;
     let mockCreateContext: ReturnType<typeof vi.fn>;
     let mockSetActiveContext: ReturnType<typeof vi.fn>;
+    let activeContext: ScenarioContext;
 
     beforeEach(() => {
       mockClearAll = vi.fn();
       mockCreateContext = vi.fn(() => {
         // Return a real ScenarioContext for fault application
-        return new ScenarioContext("test", createMockCluster());
+        const cluster = createMockCluster();
+        const baseNode = cluster.nodes[0];
+        baseNode.hcas = [0, 1].map((id) => ({
+          id,
+          devicePath: `/dev/mst/mt4123_pciconf${id}`,
+          caType: "ConnectX-6 HCA",
+          firmwareVersion: "20.35.1012",
+          ports: [
+            {
+              portNumber: 1,
+              state: "Active" as const,
+              physicalState: "LinkUp" as const,
+              rate: 200 as const,
+              lid: 101 + id,
+              guid: `0x00000000000${id + 1}`,
+              linkLayer: "InfiniBand" as const,
+              errors: {
+                symbolErrors: 0,
+                linkDowned: 0,
+                portRcvErrors: 0,
+                portXmitDiscards: 0,
+                portXmitWait: 0,
+              },
+            },
+          ],
+        }));
+        for (let nodeIndex = 1; nodeIndex < 8; nodeIndex++) {
+          cluster.nodes.push({
+            ...structuredClone(baseNode),
+            id: `dgx-${String(nodeIndex).padStart(2, "0")}`,
+            hostname: `dgx-${String(nodeIndex).padStart(2, "0")}`,
+            gpus: Array.from({ length: 8 }, (_, gpuId) => ({
+              ...structuredClone(baseNode.gpus[0]),
+              id: gpuId,
+            })),
+          });
+        }
+        activeContext = new ScenarioContext("test", cluster);
+        return activeContext;
       });
       mockSetActiveContext = vi.fn();
 
@@ -806,6 +854,134 @@ describe("scenarioLoader", () => {
       expect(mockSetActiveContext).toHaveBeenCalledWith(
         "domain1-midnight-deployment",
       );
+    });
+
+    it("injects the XID 79 fault before the first mission step asks for dmesg", async () => {
+      await initializeScenario("domain5-xid-investigation");
+
+      const result = await new BasicSystemSimulator().execute(
+        parse("dmesg | grep -i xid"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+
+      expect(result.output).toContain("Xid");
+      expect(result.output).toContain("79");
+      expect(result.output).toContain("thermal slowdown temperature (95C)");
+      const selResult = await new IpmitoolSimulator().execute(
+        parse("ipmitool sel elist"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(selResult.output).toContain(
+        "GPU #5 | Temperature - Upper Critical going high (95C)",
+      );
+      expect(activeContext.getGPU("dgx-05", 5)?.healthStatus).toBe(
+        "Critical",
+      );
+      expect(activeContext.getGPU("dgx-05", 5)?.temperature).toBe(95);
+
+      activeContext.setSlurmState("dgx-05", "drain", "PCIe maintenance");
+      const recovery = await new IpmitoolSimulator().execute(
+        parse("ipmitool chassis power cycle"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(recovery.output).toContain("Recovered 1 GPU(s)");
+      expect(activeContext.getGPU("dgx-05", 5)).toMatchObject({
+        xidErrors: [],
+        healthStatus: "OK",
+        temperature: 65,
+      });
+
+      const gpuList = await new NvidiaSmiSimulator().execute(
+        parse("nvidia-smi -L"),
+        {
+          currentNode: "dgx-05",
+          currentPath: "/root",
+          environment: {},
+          history: [],
+          scenarioContext: activeContext,
+        },
+      );
+      expect(gpuList.output).toContain("GPU 5:");
+    });
+
+    it("injects and repairs the two Domain 2 fiber links in the mission sandbox", async () => {
+      const initialized = await initializeScenario("domain2-fiber-optic-fault");
+      expect(initialized).toBe(true);
+      expect(
+        activeContext
+          .getNode("dgx-00")
+          ?.hcas.slice(0, 2)
+          .map((hca) => hca.ports[0].linkWidth),
+      ).toEqual([1, 1]);
+
+      const simulator = new InfiniBandSimulator();
+      const commandContext = {
+        currentNode: "dgx-00",
+        currentPath: "/root",
+        environment: {},
+        history: [],
+        scenarioContext: activeContext,
+      };
+      const targetPorts = activeContext
+        .getNode("dgx-00")!
+        .hcas.slice(0, 2)
+        .map((hca) => hca.ports[0]);
+      const degradedIbstat = simulator.executeIbstat(
+        parse("ibstat"),
+        commandContext,
+      ).output;
+      expect(
+        degradedIbstat.match(/Link width: 1x of 4x \(degraded\)/g),
+      ).toHaveLength(2);
+      const reducedBandwidth = targetPorts[0].rate / 4;
+      expect(
+        degradedIbstat.match(
+          new RegExp(`Effective bandwidth: ${reducedBandwidth} Gb/s`, "g"),
+        ),
+      ).toHaveLength(2);
+
+      const degradedOutput = simulator.executeIblinkinfo(
+        parse("iblinkinfo"),
+        commandContext,
+      ).output;
+      expect(degradedOutput.match(/1x, degraded/g)).toHaveLength(2);
+      expect(degradedOutput).toContain("Node: dgx-00 (dgx-00)");
+      expect(degradedOutput).toContain("Node: dgx-01 (dgx-01)");
+
+      const scenario = await loadScenarioFromFile("domain2-fiber-optic-fault");
+      applyFaultsToContext(scenario!.steps[8].autoFaults ?? [], activeContext);
+      expect(
+        activeContext
+          .getNode("dgx-00")
+          ?.hcas.slice(0, 2)
+          .map((hca) => hca.ports[0].linkWidth),
+      ).toEqual([4, 4]);
+      const repairedIbstat = simulator.executeIbstat(
+        parse("ibstat"),
+        commandContext,
+      ).output;
+      expect(repairedIbstat).not.toContain("(degraded)");
+      expect(
+        simulator.executeIblinkinfo(parse("iblinkinfo"), commandContext).output,
+      ).not.toContain("1x, degraded");
     });
   });
 });

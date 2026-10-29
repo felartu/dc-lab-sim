@@ -117,6 +117,8 @@ export interface InfiniBandPort {
   state: "Active" | "Down" | "Polling" | "Disabled";
   physicalState: "LinkUp" | "LinkDown" | "Polling" | "Sleep";
   rate: 100 | 200 | 400 | 800; // Gb/s (EDR, HDR, NDR, XDR)
+  /** Negotiated lane width; omitted on older snapshots means the full 4x width. */
+  linkWidth?: 1 | 2 | 4;
   lid: number;
   guid: string;
   linkLayer: "InfiniBand" | "Ethernet";

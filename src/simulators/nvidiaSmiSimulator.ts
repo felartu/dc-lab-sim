@@ -238,6 +238,15 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       return this.createError("Error: Unable to determine current node");
     }
 
+    if (
+      context.scenarioContext?.getServiceState(node.id, "nvidia-driver") ===
+      "inactive"
+    ) {
+      return this.createError(
+        "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.",
+      );
+    }
+
     // Handle MIG operations via flags (nvidia-smi mig is handled via subcommand)
     if (parsed.flags.has("mig")) {
       return this.handleMigFlag(parsed, context);
@@ -1118,19 +1127,24 @@ export class NvidiaSmiSimulator extends BaseSimulator {
     }
 
     if (this.hasAnyFlag(parsed, ["status", "s"])) {
-      let output = `GPU 0: ${node.gpus[0].name}\n`;
-      node.gpus[0].nvlinks.forEach((link) => {
-        output += `\tLink ${link.linkId}: ${link.status} (${link.speed} GB/s)\n`;
+      let output = "";
+      node.gpus.forEach((gpu) => {
+        output += `GPU ${gpu.id}: ${gpu.name}\n`;
+        gpu.nvlinks.forEach((link) => {
+          output += `\tLink ${link.linkId}: ${link.status} (${link.speed} GB/s)\n`;
+        });
       });
       return this.createSuccess(output);
     }
 
     // Error counters (-e flag)
     if (this.hasAnyFlag(parsed, ["e"])) {
-      let output = `GPU 0: ${node.gpus[0].name}\n`;
-      output += `NVLink Error Counters:\n`;
-      node.gpus[0].nvlinks.forEach((link) => {
-        output += `  Link ${link.linkId}: CRC Errors: ${link.txErrors + link.rxErrors}, Replay Errors: ${link.replayErrors}\n`;
+      let output = "";
+      node.gpus.forEach((gpu) => {
+        output += `GPU ${gpu.id}: ${gpu.name}\nNVLink Error Counters:\n`;
+        gpu.nvlinks.forEach((link) => {
+          output += `  Link ${link.linkId}: CRC Errors: ${link.txErrors + link.rxErrors}, Replay Errors: ${link.replayErrors}\n`;
+        });
       });
       return this.createSuccess(output);
     }
@@ -1475,8 +1489,19 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       "        ID   ID                                                   Usage      ";
     output += "|" + padCol(procCols2, TOTAL_WIDTH - 2) + "|\n";
     output += "|" + "=".repeat(TOTAL_WIDTH - 2) + "|\n";
-    const noProc = "  No running processes found";
-    output += "|" + padCol(noProc, TOTAL_WIDTH - 2) + "|\n";
+    const allocatedGPUs = gpus.filter(
+      (gpu) => gpu.allocatedJobId !== undefined,
+    );
+    if (allocatedGPUs.length === 0) {
+      output +=
+        "|" + padCol("  No running processes found", TOTAL_WIDTH - 2) + "|\n";
+    } else {
+      for (const gpu of allocatedGPUs) {
+        const pid = gpu.allocatedJobId! * 10 + gpu.id;
+        const row = `  ${gpu.id.toString().padStart(3)}  N/A  N/A  ${String(pid).padStart(9)}      C   python (job ${gpu.allocatedJobId})         ${Math.round(gpu.memoryUsed)}MiB`;
+        output += "|" + padCol(row, TOTAL_WIDTH - 2) + "|\n";
+      }
+    }
     output += TOP_BORDER + "\n";
 
     // Add warning if some GPUs are not visible due to XID errors
@@ -1617,10 +1642,10 @@ export class NvidiaSmiSimulator extends BaseSimulator {
       output += `    Power Management                      : Supported\n`;
       output += `    Power Draw                            : ${g.powerDraw.toFixed(2)} W\n`;
       output += `    Power Limit                           : ${g.powerLimit.toFixed(2)} W\n`;
-      output += `    Default Power Limit                   : ${g.powerLimit.toFixed(2)} W\n`;
+      output += `    Default Power Limit                   : ${specs.gpu.tdpWatts.toFixed(2)} W\n`;
       output += `    Enforced Power Limit                  : ${g.powerLimit.toFixed(2)} W\n`;
       output += `    Min Power Limit                       : 100.00 W\n`;
-      output += `    Max Power Limit                       : ${g.powerLimit.toFixed(2)} W\n\n`;
+      output += `    Max Power Limit                       : ${specs.gpu.tdpWatts.toFixed(2)} W\n\n`;
 
       output += `Clocks\n`;
       output += `    Graphics                              : ${g.clocksSM} MHz\n`;

@@ -26,6 +26,7 @@ import {
   type DomainId,
   type Scenario as FullScenario,
 } from "../types/scenarios";
+import { useHardwareText } from "@/utils/hardwareTextSubstitution";
 
 // ============================================================================
 // TYPES
@@ -156,6 +157,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
   const recordGauntletAttempt = useLearningStore(
     (state) => state.recordGauntletAttempt,
   );
+  const substituteText = useHardwareText();
 
   // Computed values
   const completedCount = useMemo(
@@ -262,7 +264,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
     // Record the attempt
     const attempt: GauntletAttempt = {
       timestamp: Date.now(),
-      score,
+      score: completedCount,
       totalQuestions: scenarios.length,
       timeSpentSeconds: timeTaken,
       domainBreakdown,
@@ -272,7 +274,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
     setGauntletState("results");
   }, [
     startTime,
-    score,
+    completedCount,
     scenarios.length,
     domainBreakdown,
     recordGauntletAttempt,
@@ -281,6 +283,17 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
   const handleCloseScenario = useCallback(() => {
     setActiveScenario(null);
   }, []);
+
+  const handleCompleteScenario = useCallback(() => {
+    setScenarios((previous) =>
+      previous.map((scenario, index) =>
+        index === currentScenarioIndex
+          ? { ...scenario, completed: true }
+          : scenario,
+      ),
+    );
+    setActiveScenario(null);
+  }, [currentScenarioIndex]);
 
   // Render setup screen
   if (gauntletState === "setup") {
@@ -450,7 +463,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="text-xl font-bold text-white mb-2">
-                      {activeScenario.title}
+                      {substituteText(activeScenario.title)}
                     </h3>
                     <div className="flex gap-2">
                       <span
@@ -480,7 +493,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                 </div>
 
                 <p className="text-gray-300 mb-4">
-                  {activeScenario.description}
+                  {substituteText(activeScenario.description)}
                 </p>
 
                 <div className="mb-4">
@@ -489,7 +502,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                   </h4>
                   <ul className="text-gray-300 space-y-1 list-disc pl-5">
                     {activeScenario.learningObjectives.map((objective, i) => (
-                      <li key={i}>{objective}</li>
+                      <li key={i}>{substituteText(objective)}</li>
                     ))}
                   </ul>
                 </div>
@@ -509,7 +522,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                             {i + 1}
                           </span>
                           <span className="text-white font-medium">
-                            {step.title}
+                            {substituteText(step.title)}
                           </span>
                         </div>
                       </div>
@@ -518,6 +531,14 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                 </div>
 
                 <div className="flex gap-3">
+                  {!scenarios[currentScenarioIndex]?.completed && (
+                    <button
+                      onClick={handleCompleteScenario}
+                      className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors"
+                    >
+                      Mark Complete
+                    </button>
+                  )}
                   <button
                     onClick={handleCloseScenario}
                     className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
@@ -543,7 +564,7 @@ export const ExamGauntlet: React.FC<ExamGauntletProps> = ({
                   >
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-white font-semibold">
-                        {index + 1}. {scenario.title}
+                        {index + 1}. {substituteText(scenario.title)}
                       </span>
                       {scenario.completed && (
                         <span className="text-green-500 font-bold">Done</span>

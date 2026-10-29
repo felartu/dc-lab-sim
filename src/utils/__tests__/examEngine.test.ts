@@ -137,6 +137,13 @@ describe("Exam Engine - Core Functions", () => {
   });
 
   describe("calculateExamScore", () => {
+    it("preserves the first answer choice in the saved result", () => {
+      const breakdown = calculateExamScore(createSampleQuestions(), { q1: 0 });
+      expect(
+        breakdown.questionResults.find((result) => result.questionId === "q1")
+          ?.userAnswer,
+      ).toBe(0);
+    });
     it("should calculate correct score", () => {
       const questions = createSampleQuestions();
       const answers: Record<string, number | number[]> = {

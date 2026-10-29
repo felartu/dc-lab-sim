@@ -41,7 +41,9 @@ const { mockTerminal } = vi.hoisted(() => ({
     open: vi.fn(),
     write: vi.fn(),
     writeln: vi.fn(),
-    onData: vi.fn(() => ({ dispose: vi.fn() })),
+    onData: vi.fn((_callback: (data: string) => void) => ({
+      dispose: vi.fn(),
+    })),
     onKey: vi.fn(() => ({ dispose: vi.fn() })),
     input: vi.fn(),
     dispose: vi.fn(),
@@ -67,7 +69,7 @@ vi.mock("@xterm/addon-web-links", () => ({
 }));
 
 // Mock stores
-const { mockSimulationState } = vi.hoisted(() => ({
+const { mockSimulationState, mockScenarioContextState } = vi.hoisted(() => ({
   mockSimulationState: {
     selectedNode: "dgx-00",
     cluster: {
@@ -78,6 +80,9 @@ const { mockSimulationState } = vi.hoisted(() => ({
     },
     activeScenario: null as { id: string; title: string } | null,
     selectNode: vi.fn(),
+  },
+  mockScenarioContextState: {
+    activeContext: null as { getCluster: () => { nodes: unknown[] } } | null,
   },
 }));
 
@@ -93,7 +98,7 @@ vi.mock("../../store/simulationStore", () => {
 
 vi.mock("../../store/scenarioContext", () => ({
   scenarioContextManager: {
-    getActiveContext: vi.fn(() => null),
+    getActiveContext: vi.fn(() => mockScenarioContextState.activeContext),
     hasActiveContext: vi.fn(() => false),
     getOrCreateContext: vi.fn(() => ({
       getCluster: vi.fn(() => ({
@@ -157,17 +162,21 @@ vi.mock("../../utils/pipeHandler", () => ({
 }));
 
 vi.mock("../../cli/commandRouter", () => ({
-  CommandRouter: vi.fn(() => ({
-    register: vi.fn(),
-    registerMany: vi.fn(),
-    execute: vi.fn(() => null),
-  })),
+  CommandRouter: vi.fn(() => {
+    const handlers = new Map<string, (...args: never[]) => unknown>();
+    return {
+      register: vi.fn((name, handler) => handlers.set(name, handler)),
+      registerMany: vi.fn(),
+      resolve: vi.fn((name) => handlers.get(name)),
+      execute: vi.fn(() => null),
+    };
+  }),
 }));
 
 // Mock all 20 simulators – factories must be fully self-contained (no external refs)
 vi.mock("../../simulators/nvidiaSmiSimulator", () => ({
   NvidiaSmiSimulator: vi.fn(() => ({
-    execute: vi.fn(() => ""),
+    execute: vi.fn(() => ({ output: "GPU status", exitCode: 0 })),
     getOutput: vi.fn(() => ""),
   })),
 }));
@@ -290,11 +299,18 @@ vi.mock("../../simulators/linuxUtilsSimulator", () => ({
 
 import { Terminal } from "../Terminal";
 import { generateWelcomeMessage } from "../../constants/terminalConfig";
+import { scenarioContextManager } from "../../store/scenarioContext";
+import { handleKeyboardInput } from "../../utils/terminalKeyboardHandler";
+import { SlurmSimulator } from "../../simulators/slurmSimulator";
+import { NvidiaSmiSimulator } from "../../simulators/nvidiaSmiSimulator";
+import { parse } from "../../utils/commandParser";
 
 describe("Terminal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSimulationState.activeScenario = null;
+    mockScenarioContextState.activeContext = null;
+    vi.mocked(handleKeyboardInput).mockReset();
   });
 
   it("renders the terminal container", () => {
@@ -370,6 +386,73 @@ describe("Terminal", () => {
         variant: "full",
       });
     });
+  });
+
+  it("preserves an active incident context when mounted without a mission", () => {
+    mockScenarioContextState.activeContext = {
+      getCluster: () => ({ nodes: [{ id: "dgx-03" }] }),
+    };
+
+    render(<Terminal />);
+
+    expect(scenarioContextManager.setActiveContext).not.toHaveBeenCalledWith(
+      null,
+    );
+    const slurm = vi.mocked(SlurmSimulator).mock.results[0].value;
+    expect(slurm.syncFromContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scenarioContext: mockScenarioContextState.activeContext,
+      }),
+    );
+  });
+
+  it("records executed incident commands and uses the latest callback", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    vi.mocked(handleKeyboardInput).mockImplementation((_data, config) => {
+      config.onExecute("nvidia-smi");
+      return null;
+    });
+    const { rerender } = render(<Terminal onIncidentCommand={first} />);
+    await waitFor(() => expect(mockTerminal.onData).toHaveBeenCalled());
+    const onData = mockTerminal.onData.mock.calls[0][0];
+    await act(async () => onData("\r"));
+    await waitFor(() => expect(first).toHaveBeenCalledWith("nvidia-smi"));
+    rerender(<Terminal onIncidentCommand={second} />);
+    await act(async () => onData("\r"));
+    await waitFor(() => expect(second).toHaveBeenCalledWith("nvidia-smi"));
+    expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs remote SSH commands on the requested node without changing the connection", async () => {
+    const onIncidentCommand = vi.fn();
+    vi.mocked(handleKeyboardInput).mockImplementation((_data, config) => {
+      config.onExecute("ssh dgx-01 nvidia-smi");
+      return null;
+    });
+    render(<Terminal onIncidentCommand={onIncidentCommand} />);
+    await waitFor(() => expect(mockTerminal.onData).toHaveBeenCalled());
+    await act(async () => mockTerminal.onData.mock.calls[0][0]("\r"));
+    const simulator = vi.mocked(NvidiaSmiSimulator).mock.results[0].value;
+    await waitFor(() =>
+      expect(simulator.execute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ currentNode: "dgx-01" }),
+      ),
+    );
+    expect(onIncidentCommand).toHaveBeenCalledWith("ssh dgx-01 nvidia-smi");
+    expect(mockSimulationState.selectNode).not.toHaveBeenCalled();
+  });
+
+  it("expands environment variables before dispatching a terminal command", async () => {
+    vi.mocked(handleKeyboardInput).mockImplementation((_data, config) => {
+      config.onExecute("nvidia-smi $USER");
+      return null;
+    });
+    render(<Terminal />);
+    await waitFor(() => expect(mockTerminal.onData).toHaveBeenCalled());
+    await act(async () => mockTerminal.onData.mock.calls[0][0]("\r"));
+    await waitFor(() => expect(parse).toHaveBeenCalledWith("nvidia-smi root"));
   });
 
   it("does not write a welcome banner while a mission is in progress", async () => {

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { applyFaultsToContext } from "../scenarioLoader";
 import { ScenarioContext } from "@/store/scenarioContext";
+import { InfiniBandSimulator } from "@/simulators/infinibandSimulator";
+import { parse } from "@/utils/commandParser";
 import type { FaultInjectionConfig } from "@/types/scenarios";
 import type { ClusterConfig } from "@/types/hardware";
 
@@ -120,6 +122,185 @@ function createTestCluster(): ClusterConfig {
 }
 
 describe("applyFaultsToContext", () => {
+  it("injects an InfiniBand link failure visible through ibstat", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].hcas = [
+      {
+        id: 0,
+        devicePath: "/dev/mst/mt4123_pciconf0",
+        caType: "ConnectX-6 HCA",
+        firmwareVersion: "20.35.1012",
+        ports: [
+          {
+            portNumber: 1,
+            state: "Active",
+            physicalState: "LinkUp",
+            rate: 200,
+            lid: 101,
+            guid: "0x000000000001",
+            linkLayer: "InfiniBand",
+            errors: {
+              symbolErrors: 0,
+              linkDowned: 0,
+              portRcvErrors: 0,
+              portXmitDiscards: 0,
+              portXmitWait: 0,
+            },
+          },
+        ],
+      },
+    ];
+    const context = new ScenarioContext("test", cluster);
+
+    applyFaultsToContext(
+      [{ nodeId: "dgx-00", type: "ib-link-down", severity: "critical" }],
+      context,
+    );
+
+    const port = context.getNode("dgx-00")?.hcas[0].ports[0];
+    expect(port?.state).toBe("Down");
+    expect(port?.physicalState).toBe("LinkDown");
+    expect(port?.errors.linkDowned).toBe(1);
+    expect(context.getGPU("dgx-00", 0)?.healthStatus).toBe("OK");
+
+    const simulator = new InfiniBandSimulator();
+    const result = simulator.executeIbstat(parse("ibstat"), {
+      currentNode: "dgx-00",
+      currentPath: "/root",
+      environment: {},
+      history: [],
+      scenarioContext: context,
+    });
+    expect(result.output).toContain("State: Down");
+    expect(result.output).toContain("Physical state: LinkDown");
+    expect(context.getMutationCount()).toBe(1);
+  });
+
+  it("falls back to the node's first HCA and port when IDs are not zero-based", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].hcas = [
+      {
+        id: 4,
+        devicePath: "/dev/mst/mt4123_pciconf4",
+        caType: "ConnectX-6 HCA",
+        firmwareVersion: "20.35.1012",
+        ports: [
+          {
+            portNumber: 2,
+            state: "Active",
+            physicalState: "LinkUp",
+            rate: 200,
+            lid: 102,
+            guid: "0x000000000002",
+            linkLayer: "InfiniBand",
+            errors: {
+              symbolErrors: 0,
+              linkDowned: 0,
+              portRcvErrors: 0,
+              portXmitDiscards: 0,
+              portXmitWait: 0,
+            },
+          },
+        ],
+      },
+    ];
+    const context = new ScenarioContext("test-nonzero-ids", cluster);
+
+    applyFaultsToContext(
+      [{ nodeId: "dgx-00", type: "ib-link-down", severity: "critical" }],
+      context,
+    );
+
+    const port = context.getNode("dgx-00")?.hcas[0].ports[0];
+    expect(port?.state).toBe("Down");
+    expect(port?.physicalState).toBe("LinkDown");
+    expect(port?.errors.linkDowned).toBe(1);
+  });
+
+  it("injects and restores a reduced-width InfiniBand link", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].hcas = [
+      {
+        id: 0,
+        devicePath: "/dev/mst/mt4123_pciconf0",
+        caType: "ConnectX-6 HCA",
+        firmwareVersion: "20.35.1012",
+        ports: [
+          {
+            portNumber: 1,
+            state: "Active",
+            physicalState: "LinkUp",
+            rate: 200,
+            lid: 101,
+            guid: "0x000000000001",
+            linkLayer: "InfiniBand",
+            errors: {
+              symbolErrors: 0,
+              linkDowned: 0,
+              portRcvErrors: 0,
+              portXmitDiscards: 0,
+              portXmitWait: 0,
+            },
+          },
+        ],
+      },
+    ];
+    const context = new ScenarioContext("fiber-fault", cluster);
+    const simulator = new InfiniBandSimulator();
+    const commandContext = {
+      currentNode: "dgx-00",
+      currentPath: "/root",
+      environment: {},
+      history: [],
+      scenarioContext: context,
+    };
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          type: "ib-link-degraded",
+          severity: "warning",
+          parameters: { hcaId: 0, portNumber: 1, linkWidth: 1 },
+        },
+      ],
+      context,
+    );
+
+    expect(context.getNode("dgx-00")?.hcas[0].ports[0].linkWidth).toBe(1);
+    expect(simulator.executeIbstat(parse("ibstat"), commandContext).output).toContain(
+      "Effective bandwidth: 50 Gb/s",
+    );
+    const degradedLinks = simulator.executeIblinkinfo(
+      parse("iblinkinfo"),
+      commandContext,
+    ).output;
+    expect(degradedLinks).toContain("50 Gb/s effective");
+    expect(degradedLinks).toContain("1x, degraded");
+    expect(
+      simulator.executeIbWriteBw(parse("ib_write_bw"), commandContext).output,
+    ).toContain("Write bandwidth: 48.50 Gb/s (200 Gb/s HDR link)");
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          type: "ib-link-restored",
+          severity: "warning",
+          parameters: { hcaId: 0, portNumber: 1 },
+        },
+      ],
+      context,
+    );
+
+    const restoredPort = context.getNode("dgx-00")?.hcas[0].ports[0];
+    expect(restoredPort?.linkWidth).toBe(4);
+    expect(restoredPort?.state).toBe("Active");
+    expect(simulator.executeIbstat(parse("ibstat"), commandContext).output).toContain(
+      "Effective bandwidth: 200 Gb/s",
+    );
+  });
+
   it("applies xid-error fault to context", () => {
     const cluster = createTestCluster();
     const context = new ScenarioContext("test", cluster);
@@ -139,7 +320,9 @@ describe("applyFaultsToContext", () => {
     const gpu = context.getGPU("dgx-00", 0);
     expect(gpu?.xidErrors).toHaveLength(1);
     expect(gpu?.xidErrors[0].code).toBe(79);
-    expect(context.getMutationCount()).toBe(1);
+    expect(gpu?.healthStatus).toBe("Critical");
+    expect(gpu?.utilization).toBe(0);
+    expect(context.getMutationCount()).toBe(2);
   });
 
   it("applies thermal fault to context", () => {
@@ -160,6 +343,29 @@ describe("applyFaultsToContext", () => {
 
     const gpu = context.getGPU("dgx-00", 1);
     expect(gpu?.temperature).toBe(92);
+  });
+
+  it("applies a power cap without leaving draw above the limit", () => {
+    const cluster = createTestCluster();
+    cluster.nodes[0].gpus[0].powerDraw = 650;
+    const context = new ScenarioContext("test", cluster);
+
+    applyFaultsToContext(
+      [
+        {
+          nodeId: "dgx-00",
+          gpuId: 0,
+          type: "power",
+          severity: "warning",
+          parameters: { powerLimit: 300 },
+        },
+      ],
+      context,
+    );
+
+    expect(context.getGPU("dgx-00", 0)?.powerLimit).toBe(300);
+    expect(context.getGPU("dgx-00", 0)?.powerDraw).toBe(300);
+    expect(context.getGPU("dgx-00", 1)?.powerLimit).toBe(700);
   });
 
   it("applies memory-full fault to context", () => {

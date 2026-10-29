@@ -4,6 +4,7 @@ import type {
   NarrativeScenario,
 } from "@/types/scenarios";
 import type { ScenarioContext } from "@/store/scenarioContext";
+import type { GPU, InfiniBandHCA, BMCSensor } from "@/types/hardware";
 import { useSimulationStore } from "@/store/simulationStore";
 import { narrativeToScenario } from "./narrativeAdapter";
 import { createDGXNode } from "./clusterFactory";
@@ -13,6 +14,130 @@ import { logger } from "@/utils/logger";
 let scenarioCache: Map<string, Scenario> | null = null;
 // Cache for raw narrative data
 let narrativeScenarios: NarrativeScenario[] | null = null;
+
+function setInfiniBandPortDown(
+  hcas: InfiniBandHCA[],
+  hcaId: number,
+  portNumber: number,
+): InfiniBandHCA[] {
+  // Device identifiers are not guaranteed to be zero-based across cluster
+  // snapshots. Resolve the requested HCA/port when possible, then fall back to
+  // the first real device so a generic incident fault still reaches hardware.
+  const targetHca = hcas.find((hca) => hca.id === hcaId) ?? hcas[0];
+  if (!targetHca) return hcas;
+
+  const targetPort =
+    targetHca.ports.find((port) => port.portNumber === portNumber) ??
+    targetHca.ports[0];
+  if (!targetPort) return hcas;
+
+  return hcas.map((hca) =>
+    hca.id !== targetHca.id
+      ? hca
+      : {
+          ...hca,
+          ports: hca.ports.map((port) =>
+            port.portNumber !== targetPort.portNumber
+              ? port
+              : {
+                  ...port,
+                  state: "Down",
+                  physicalState: "LinkDown",
+                  errors: {
+                    ...port.errors,
+                    linkDowned: port.errors.linkDowned + 1,
+                  },
+                },
+          ),
+        },
+  );
+}
+
+function setInfiniBandPortWidth(
+  hcas: InfiniBandHCA[],
+  hcaId: number,
+  portNumber: number,
+  linkWidth: 1 | 2 | 4,
+): InfiniBandHCA[] {
+  const targetHca = hcas.find((hca) => hca.id === hcaId) ?? hcas[0];
+  if (!targetHca) return hcas;
+
+  const targetPort =
+    targetHca.ports.find((port) => port.portNumber === portNumber) ??
+    targetHca.ports[0];
+  if (!targetPort) return hcas;
+
+  return hcas.map((hca) =>
+    hca.id !== targetHca.id
+      ? hca
+      : {
+          ...hca,
+          ports: hca.ports.map((port) =>
+            port.portNumber !== targetPort.portNumber
+              ? port
+              : {
+                  ...port,
+                  linkWidth,
+                  ...(linkWidth === 4
+                    ? { state: "Active" as const, physicalState: "LinkUp" as const }
+                    : {}),
+                },
+          ),
+        },
+  );
+}
+
+function getPowerFaultUpdates(
+  gpu: GPU | undefined,
+  parameters?: Record<string, unknown>,
+): Partial<GPU> {
+  const requestedDraw =
+    typeof parameters?.powerDraw === "number"
+      ? parameters.powerDraw
+      : undefined;
+  const requestedLimit =
+    typeof parameters?.powerLimit === "number"
+      ? parameters.powerLimit
+      : undefined;
+
+  if (requestedLimit !== undefined) {
+    return {
+      powerLimit: requestedLimit,
+      powerDraw: Math.min(
+        requestedDraw ?? gpu?.powerDraw ?? requestedLimit,
+        requestedLimit,
+      ),
+    };
+  }
+
+  return { powerDraw: requestedDraw ?? 700 };
+}
+
+function updateFaultedSensor(
+  sensors: BMCSensor[],
+  parameters: Record<string, unknown> | undefined,
+): BMCSensor[] {
+  return sensors.map((sensor) =>
+    sensor.name === parameters?.sensorName
+      ? {
+          ...sensor,
+          reading:
+            typeof parameters.reading === "number"
+              ? parameters.reading
+              : sensor.reading,
+          status: "Warning",
+          upperWarning:
+            typeof parameters.upperWarning === "number"
+              ? parameters.upperWarning
+              : sensor.upperWarning,
+          upperCritical:
+            typeof parameters.upperCritical === "number"
+              ? parameters.upperCritical
+              : sensor.upperCritical,
+        }
+      : sensor,
+  );
+}
 
 /**
  * Lazily load narrative scenario data via dynamic import.
@@ -118,12 +243,19 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
     switch (type) {
       case "xid-error":
         if (gpuId !== undefined) {
+          const xidCode = parameters?.xid || 79;
           store.addXIDError(nodeId, gpuId, {
-            code: parameters?.xid || 79,
+            code: xidCode,
             timestamp: new Date(),
             description: parameters?.description || "GPU error detected",
             severity: "Critical",
           });
+          if (xidCode === 79) {
+            store.updateGPU(nodeId, gpuId, {
+              utilization: 0,
+              healthStatus: "Critical",
+            });
+          }
         }
         break;
 
@@ -158,6 +290,46 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
         }
         break;
 
+      case "ib-link-down": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node) {
+          store.updateHCAs(
+            nodeId,
+            setInfiniBandPortDown(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+            ),
+          );
+        }
+        break;
+      }
+
+      case "ib-link-degraded":
+      case "ib-link-restored": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node) {
+          store.updateHCAs(
+            nodeId,
+            setInfiniBandPortWidth(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+              type === "ib-link-restored"
+                ? 4
+                : parameters?.linkWidth === 2
+                  ? 2
+                  : 1,
+            ),
+          );
+        }
+        break;
+      }
+
       case "gpu-hang":
         if (gpuId !== undefined) {
           store.updateGPU(nodeId, gpuId, {
@@ -166,11 +338,25 @@ export function applyScenarioFaults(faults: FaultInjectionConfig[]): void {
         }
         break;
 
+      case "bmc-sensor": {
+        const node = store.cluster.nodes.find(
+          (candidate) => candidate.id === nodeId,
+        );
+        if (node)
+          store.updateBMCSensors(
+            nodeId,
+            updateFaultedSensor(node.bmc.sensors, parameters),
+          );
+        break;
+      }
+
       case "power":
         if (gpuId !== undefined) {
-          store.updateGPU(nodeId, gpuId, {
-            powerDraw: parameters?.powerDraw || 700,
-          });
+          const node = store.cluster.nodes.find(
+            (candidate) => candidate.id === nodeId,
+          );
+          const gpu = node?.gpus.find((candidate) => candidate.id === gpuId);
+          store.updateGPU(nodeId, gpuId, getPowerFaultUpdates(gpu, parameters));
         }
         break;
 
@@ -202,12 +388,19 @@ export function applyFaultsToContext(
     switch (type) {
       case "xid-error":
         if (gpuId !== undefined) {
+          const xidCode = parameters?.xid || 79;
           context.addXIDError(nodeId, gpuId, {
-            code: parameters?.xid || 79,
+            code: xidCode,
             timestamp: new Date(),
             description: parameters?.description || "GPU error detected",
             severity: "Critical",
           });
+          if (xidCode === 79) {
+            context.updateGPU(nodeId, gpuId, {
+              utilization: 0,
+              healthStatus: "Critical",
+            });
+          }
         }
         break;
 
@@ -215,6 +408,9 @@ export function applyFaultsToContext(
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             temperature: parameters?.targetTemp || 95,
+            ...(parameters?.clocksSM !== undefined
+              ? { clocksSM: parameters.clocksSM }
+              : {}),
           });
         }
         break;
@@ -222,12 +418,18 @@ export function applyFaultsToContext(
       case "ecc-error":
         if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
+            ...(parameters?.stalled
+              ? { utilization: 0, healthStatus: "Critical" }
+              : {}),
+            ...(parameters?.healthStatus
+              ? { healthStatus: parameters.healthStatus }
+              : {}),
             eccErrors: {
-              singleBit: parameters?.singleBit || 10,
-              doubleBit: parameters?.doubleBit || 1,
+              singleBit: parameters?.singleBit ?? 10,
+              doubleBit: parameters?.doubleBit ?? 1,
               aggregated: {
-                singleBit: parameters?.singleBit || 10,
-                doubleBit: parameters?.doubleBit || 1,
+                singleBit: parameters?.singleBit ?? 10,
+                doubleBit: parameters?.doubleBit ?? 1,
               },
             },
           });
@@ -236,11 +438,58 @@ export function applyFaultsToContext(
 
       case "nvlink-failure":
         if (gpuId !== undefined) {
+          const gpu = context.getGPU(nodeId, gpuId);
           context.updateGPU(nodeId, gpuId, {
             healthStatus: "Warning",
+            nvlinks: gpu?.nvlinks.map((link) =>
+              link.linkId === 2
+                ? {
+                    ...link,
+                    speed: link.speed / 2,
+                    txErrors: link.txErrors + 10,
+                    replayErrors: link.replayErrors + 25,
+                  }
+                : link,
+            ),
           });
         }
         break;
+
+      case "ib-link-down": {
+        const node = context.getNode(nodeId);
+        if (node) {
+          context.updateHCAs(
+            nodeId,
+            setInfiniBandPortDown(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+            ),
+          );
+        }
+        break;
+      }
+
+      case "ib-link-degraded":
+      case "ib-link-restored": {
+        const node = context.getNode(nodeId);
+        if (node) {
+          context.updateHCAs(
+            nodeId,
+            setInfiniBandPortWidth(
+              node.hcas,
+              parameters?.hcaId ?? 0,
+              parameters?.portNumber ?? 1,
+              type === "ib-link-restored"
+                ? 4
+                : parameters?.linkWidth === 2
+                  ? 2
+                  : 1,
+            ),
+          );
+        }
+        break;
+      }
 
       case "gpu-hang":
         if (gpuId !== undefined) {
@@ -251,11 +500,23 @@ export function applyFaultsToContext(
         }
         break;
 
+      case "bmc-sensor": {
+        const node = context.getNode(nodeId);
+        if (node)
+          context.updateBMCSensors(
+            nodeId,
+            updateFaultedSensor(node.bmc.sensors, parameters),
+          );
+        break;
+      }
+
       case "power":
         if (gpuId !== undefined) {
-          context.updateGPU(nodeId, gpuId, {
-            powerDraw: parameters?.powerDraw || 700,
-          });
+          context.updateGPU(
+            nodeId,
+            gpuId,
+            getPowerFaultUpdates(context.getGPU(nodeId, gpuId), parameters),
+          );
         }
         break;
 
@@ -268,7 +529,12 @@ export function applyFaultsToContext(
         break;
 
       case "driver-error":
-        if (gpuId !== undefined) {
+        context.setServiceState(nodeId, "nvidia-driver", "inactive");
+        if (parameters?.nodeWide) {
+          context.getNode(nodeId)?.gpus.forEach((gpu) => {
+            context.updateGPU(nodeId, gpu.id, { healthStatus: "Unknown" });
+          });
+        } else if (gpuId !== undefined) {
           context.updateGPU(nodeId, gpuId, {
             healthStatus: "Critical",
           });
@@ -309,9 +575,13 @@ export function applyFaultsToContext(
         const utilization = parameters?.utilization as number | undefined;
         const memoryPercent = parameters?.memoryPercent as number | undefined;
         const reasonPending = parameters?.reasonPending as string | undefined;
+        const jobId = parameters?.jobId as number | undefined;
+        const failedRank = parameters?.failedRank as number | undefined;
+        const rankCount = parameters?.rankCount as number | undefined;
 
         // Store seed job for SlurmSimulator to pick up
         context.addSeedJob({
+          jobId,
           jobName,
           nodeIds,
           gpusPerNode,
@@ -322,11 +592,13 @@ export function applyFaultsToContext(
           reasonPending,
           utilization,
           memoryPercent,
+          failedRank,
+          rankCount,
         });
 
         // Only RUNNING jobs allocate nodes and GPUs
         if (jobState === "RUNNING") {
-          const seedJobId = 1000 + context.getSeedJobs().length - 1;
+          const seedJobId = jobId ?? 1000 + context.getSeedJobs().length - 1;
           const targetUtil = utilization ?? 85;
           const memPct = memoryPercent ?? 75;
 

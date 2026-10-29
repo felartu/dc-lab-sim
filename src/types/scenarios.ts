@@ -9,6 +9,10 @@ export type FaultType =
   | "ecc-error"
   | "thermal"
   | "power"
+  | "bmc-sensor"
+  | "ib-link-down"
+  | "ib-link-degraded"
+  | "ib-link-restored"
   | "nvlink-failure"
   | "gpu-hang"
   | "memory-full"
@@ -34,6 +38,7 @@ export interface FaultInjectionConfig {
  * and set realistic node/GPU state.
  */
 export interface SeedJob {
+  jobId?: number;
   jobName: string;
   nodeIds: string[];
   gpusPerNode: number;
@@ -44,6 +49,8 @@ export interface SeedJob {
   reasonPending?: string;
   utilization?: number;
   memoryPercent?: number;
+  failedRank?: number;
+  rankCount?: number;
 }
 
 // ============================================================================
@@ -374,6 +381,8 @@ export interface ExamState {
 }
 
 export interface ExamBreakdown {
+  /** Exam mode, absent on attempts saved before mode tracking was introduced. */
+  mode?: string;
   totalPoints: number;
   earnedPoints: number;
   percentage: number;

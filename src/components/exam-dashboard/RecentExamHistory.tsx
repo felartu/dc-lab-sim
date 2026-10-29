@@ -2,6 +2,7 @@ import { GraduationCap, Trophy, Zap } from "lucide-react";
 import { useLearningStore } from "@/store/learningStore";
 import { useLearningProgressStore } from "@/store/learningProgressStore";
 import commandFamilies from "@/data/commandFamilies.json";
+import { getGauntletAttemptPercentage } from "@/utils/gauntletScoring";
 
 const FAMILY_NAMES: Record<string, string> = {};
 for (const family of commandFamilies.families) {
@@ -52,10 +53,7 @@ export function RecentExamHistory({ maxItems = 5 }: RecentExamHistoryProps) {
 
   // Gauntlets: have timestamps
   gauntletAttempts.forEach((attempt, idx) => {
-    const score =
-      attempt.totalQuestions > 0
-        ? Math.round((attempt.score / attempt.totalQuestions) * 100)
-        : 0;
+    const score = getGauntletAttemptPercentage(attempt);
     entries.push({
       type: "gauntlet",
       label: `Gauntlet #${idx + 1}`,

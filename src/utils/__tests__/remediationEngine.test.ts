@@ -108,6 +108,22 @@ describe("applyRemediation", () => {
     expect(r.gpuUpdates).toMatchObject({ xidErrors: [], healthStatus: "OK" });
   });
 
+  it("power-cycle restores a thermally stressed XID 79 GPU after cooling repair", () => {
+    const gpu = makeGpu({
+      xidErrors: [xid(79)],
+      healthStatus: "Critical",
+      temperature: 95,
+    });
+    const r = applyRemediation(gpu, makeNode({}, [gpu]), "power-cycle");
+
+    expect(r.outcome).toBe("fixed");
+    expect(r.gpuUpdates).toMatchObject({
+      xidErrors: [],
+      healthStatus: "OK",
+      temperature: 65,
+    });
+  });
+
   it("power-cycle restores downed NVLinks on an off-bus (XID 79) GPU", () => {
     const gpu = makeGpu({
       xidErrors: [xid(79)],

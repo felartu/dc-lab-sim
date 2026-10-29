@@ -79,11 +79,15 @@ export type NetworkNodeType =
         targetLabel: string;
         speed: string;
         status: "active" | "down";
+        hasDegradedWidth: boolean;
         totalErrors: number;
         ports: Array<{
+          hcaId: number;
           portNumber: number;
           state: string;
           rate: number;
+          linkWidth: number;
+          effectiveRate: number;
           errors: {
             symbolErrors: number;
             linkDowned: number;
@@ -547,7 +551,7 @@ export const NetworkNodeDetail: React.FC<NetworkNodeDetailProps> = ({
                         const portColor =
                           port.state !== "Active"
                             ? "text-red-500"
-                            : hasErrors
+                            : hasErrors || (port.linkWidth ?? 4) < 4
                               ? "text-yellow-500"
                               : "text-green-500";
 
@@ -558,10 +562,10 @@ export const NetworkNodeDetail: React.FC<NetworkNodeDetailProps> = ({
                           >
                             <div className="flex items-center justify-between">
                               <span className="text-gray-300 text-xs">
-                                Port {port.portNumber}
+                                HCA {hca.id} · Port {port.portNumber}
                               </span>
                               <span className={`text-xs ${portColor}`}>
-                                {port.state} @ {port.rate} Gb/s
+                                {port.state} @ {port.rate} Gb/s · {port.linkWidth ?? 4}x
                               </span>
                             </div>
 
@@ -718,7 +722,7 @@ export const NetworkNodeDetail: React.FC<NetworkNodeDetailProps> = ({
               <HealthBadge
                 status={
                   node.data.status === "active"
-                    ? node.data.totalErrors > 0
+                    ? node.data.totalErrors > 0 || node.data.hasDegradedWidth
                       ? "Warning"
                       : "active"
                     : "down"
@@ -774,16 +778,18 @@ export const NetworkNodeDetail: React.FC<NetworkNodeDetailProps> = ({
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-gray-300">
-                          Port {port.portNumber}
+                          HCA {port.hcaId} · Port {port.portNumber}
                         </span>
                         <span
                           className={
-                            port.state === "Active"
+                            port.state === "Active" && port.linkWidth === 4
                               ? "text-green-500"
-                              : "text-red-500"
+                              : port.state === "Active"
+                                ? "text-yellow-500"
+                                : "text-red-500"
                           }
                         >
-                          {port.state} @ {port.rate} Gb/s
+                          {port.state} @ {port.rate} Gb/s · {port.linkWidth}x ({port.effectiveRate} Gb/s effective)
                         </span>
                       </div>
                       <div className="grid grid-cols-4 gap-1 mt-1 text-xs">

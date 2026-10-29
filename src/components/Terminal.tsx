@@ -25,7 +25,10 @@ import { ClusterKitSimulator } from "@/simulators/clusterKitSimulator";
 import { NeMoSimulator } from "@/simulators/nemoSimulator";
 import { LinuxUtilsSimulator } from "@/simulators/linuxUtilsSimulator";
 import { useSimulationStore } from "@/store/simulationStore";
-import { scenarioContextManager } from "@/store/scenarioContext";
+import {
+  scenarioContextManager,
+  type ScenarioContext,
+} from "@/store/scenarioContext";
 import { logger } from "@/utils/logger";
 import { ScenarioValidator } from "@/utils/scenarioValidator";
 import { parse as parseCommand } from "@/utils/commandParser";
@@ -54,6 +57,7 @@ import {
   validatePipeSyntax,
 } from "@/utils/pipeHandler";
 import { CommandRouter } from "@/cli/commandRouter";
+import { expandShellVariables } from "@/utils/expandShellVariables";
 
 // Helper function to format practice exercises
 function formatPracticeExercises(
@@ -113,11 +117,13 @@ interface TerminalProps {
    * intended node rather than whichever node the terminal is currently on.
    */
   onReady?: (pasteCommand: (cmd: string, targetNode?: string) => void) => void;
+  onIncidentCommand?: (command: string) => void;
 }
 
 export const Terminal: React.FC<TerminalProps> = ({
   className = "",
   onReady,
+  onIncidentCommand,
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -149,6 +155,8 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Ref to capture onReady callback (init effect has [] deps so we need a ref)
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onIncidentCommandRef = useRef(onIncidentCommand);
+  onIncidentCommandRef.current = onIncidentCommand;
 
   // Command simulators
   const nvidiaSmiSimulator = useRef(new NvidiaSmiSimulator());
@@ -158,6 +166,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   const nvsmSimulator = useRef(new NvsmSimulator());
   const mellanoxSimulator = useRef(new MellanoxSimulator());
   const slurmSimulator = useRef(new SlurmSimulator());
+  const slurmContextRef = useRef<ScenarioContext | undefined>(undefined);
   const containerSimulator = useRef(new ContainerSimulator());
   const bcmSimulator = useRef(new BcmSimulator());
   const cmshSimulator = useRef(new CmshSimulator());
@@ -247,18 +256,32 @@ export const Terminal: React.FC<TerminalProps> = ({
       // Sync seed jobs from scenario context into slurm simulator
       slurmSimulator.current.clearJobs();
       slurmSimulator.current.syncFromContext(currentContext.current);
+      slurmContextRef.current = context;
 
       logger.debug(
         `Terminal: Using scenario context for ${store.activeScenario.id}`,
       );
     } else {
-      // Clear scenario context when no active scenario
-      scenarioContextManager.setActiveContext(null);
-      currentContext.current.scenarioContext = undefined;
-      currentContext.current.cluster = store.cluster;
-      slurmSimulator.current.clearJobs();
+      // Live incidents also use an isolated ScenarioContext, but they do not
+      // set store.activeScenario. Preserve that context when the SimulatorView
+      // mounts after an incident is launched from another tab.
+      const activeContext = scenarioContextManager.getActiveContext();
+      if (activeContext) {
+        currentContext.current.scenarioContext = activeContext;
+        currentContext.current.cluster = activeContext.getCluster();
+        slurmSimulator.current.clearJobs();
+        slurmSimulator.current.syncFromContext(currentContext.current);
+        slurmContextRef.current = activeContext;
+        logger.debug("Terminal: Using active incident context");
+      } else {
+        scenarioContextManager.setActiveContext(null);
+        currentContext.current.scenarioContext = undefined;
+        currentContext.current.cluster = store.cluster;
+        slurmSimulator.current.clearJobs();
+        slurmContextRef.current = undefined;
 
-      logger.debug("Terminal: Cleared scenario context");
+        logger.debug("Terminal: Cleared scenario context");
+      }
     }
   }, [activeScenarioId]);
 
@@ -499,7 +522,7 @@ export const Terminal: React.FC<TerminalProps> = ({
       }
     });
 
-    router.register("ssh", (cl) => {
+    router.register("ssh", (cl, ctx) => {
       const args = cl.trim().split(/\s+/).slice(1);
       if (args.length === 0) {
         return {
@@ -518,6 +541,16 @@ export const Terminal: React.FC<TerminalProps> = ({
           output: `\x1b[31mssh: Could not resolve hostname ${targetNode}: Name or service not known\x1b[0m`,
           exitCode: 1,
         };
+      }
+      if (args.length > 1) {
+        const remoteCommand = args.slice(1).join(" ");
+        const handler = router.resolve(args[1]);
+        if (!handler)
+          return {
+            output: `bash: ${args[1]}: command not found`,
+            exitCode: 127,
+          };
+        return handler(remoteCommand, { ...ctx, currentNode: targetNode });
       }
       if (targetNode === currentContext.current.currentNode) {
         return {
@@ -741,6 +774,7 @@ export const Terminal: React.FC<TerminalProps> = ({
         "hostnamectl",
         "timedatectl",
         "lsmod",
+        "dkms",
         "modinfo",
         "top",
         "ps",
@@ -1196,6 +1230,24 @@ export const Terminal: React.FC<TerminalProps> = ({
         return;
       }
 
+      // Live incidents create their isolated ScenarioContext outside the
+      // activeScenario store field. Resolve it here so diagnostics such as
+      // ibstat read the same faulted cluster shown in the dashboard.
+      const activeContext = scenarioContextManager.getActiveContext();
+      if (activeContext) {
+        currentContext.current.scenarioContext = activeContext;
+        currentContext.current.cluster = activeContext.getCluster();
+      } else if (!useSimulationStore.getState().activeScenario) {
+        currentContext.current.scenarioContext = undefined;
+        currentContext.current.cluster = useSimulationStore.getState().cluster;
+      }
+      if (activeContext !== slurmContextRef.current) {
+        slurmSimulator.current.clearJobs();
+        if (activeContext)
+          slurmSimulator.current.syncFromContext(currentContext.current);
+        slurmContextRef.current = activeContext;
+      }
+
       // Expand $(command) shell substitutions before processing.
       // In a real bash shell these would be expanded by the shell;
       // in the simulator we expand common patterns to simulated values.
@@ -1207,6 +1259,10 @@ export const Terminal: React.FC<TerminalProps> = ({
           if (inner.startsWith("pgrep")) return "12345";
           return "0";
         },
+      );
+      cmdLine = expandShellVariables(
+        cmdLine,
+        currentContext.current.environment,
       );
 
       // Add to history (store the original, unexpanded form)
@@ -1318,6 +1374,15 @@ export const Terminal: React.FC<TerminalProps> = ({
 
         if (result.output) {
           term.writeln("\n" + result.output);
+        }
+
+        if (
+          !pipeSyntaxError &&
+          result.exitCode !== 127 &&
+          !["help", "hint"].includes(command) &&
+          (command !== "ssh" || parts.length > 2)
+        ) {
+          onIncidentCommandRef.current?.(originalCmdLine);
         }
 
         // Scenario Validation - Check for active scenario and validate command

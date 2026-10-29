@@ -3,6 +3,8 @@ import type { NarrativeQuiz } from "../types/scenarios";
 import { Check, X } from "lucide-react";
 import { useHardwareText } from "@/utils/hardwareTextSubstitution";
 
+const FEEDBACK_DISPLAY_DURATION_MS = 10_000;
+
 interface InlineQuizProps {
   quiz: NarrativeQuiz;
   onComplete: (correct: boolean) => void;
@@ -20,7 +22,7 @@ export function InlineQuiz({ quiz, onComplete }: InlineQuizProps) {
     // Delay onComplete so the user can see the feedback before the step advances
     setTimeout(() => {
       onComplete(index === quiz.correctIndex);
-    }, 1500);
+    }, FEEDBACK_DISPLAY_DURATION_MS);
   };
 
   return (

@@ -170,7 +170,6 @@ function App() {
     abandonIncident,
     requestHint,
   } = incidentSession;
-  // incidentSession.recordCommand is available for Terminal integration (Task 15)
 
   // One-time cleanup of deprecated learning path localStorage keys
   useEffect(() => {
@@ -240,6 +239,8 @@ function App() {
     "memory-full",
     "driver-error",
     "pcie-error",
+    "ib-link-degraded",
+    "ib-link-restored",
     "allocate-job",
     "set-slurm-state",
     "add-node",
@@ -360,7 +361,14 @@ function App() {
             className={`flex-1 h-0 flex flex-col overflow-hidden transition-all duration-300 ${(showLabWorkspace && !activeScenario) || incidentState === "active" ? "xl:ml-[clamp(340px,30vw,560px)]" : ""}`}
           >
             {currentView === "simulator" && (
-              <SimulatorView className="flex-1 h-full" />
+              <SimulatorView
+                className="flex-1 h-full"
+                onIncidentCommand={
+                  incidentState === "active"
+                    ? incidentSession.recordCommand
+                    : undefined
+                }
+              />
             )}
 
             <Suspense fallback={<ViewFallback />}>
@@ -464,6 +472,7 @@ function App() {
         {showExamWorkspace && (
           <ExamWorkspace
             mode={examMode}
+            onReviewLabs={() => setCurrentView("labs")}
             onClose={() => {
               setShowExamWorkspace(false);
               setExamMode(undefined);
@@ -491,6 +500,7 @@ function App() {
       {incidentState === "review" && reviewData && (
         <Suspense fallback={null}>
           <AfterActionReview
+            startedAt={reviewData.startedAt}
             score={reviewData.score}
             correctDiagnosis={reviewData.correctDiagnosis}
             selectedRootCause={reviewData.selectedRootCause}
@@ -498,9 +508,7 @@ function App() {
             events={reviewData.events}
             commands={reviewData.commands}
             tip={reviewData.tip}
-            onReviewOptimalPath={() => {
-              /* TODO: launch as guided scenario */
-            }}
+            diagnosticPath={diagnosticPath}
             onRestart={() =>
               handleStartIncident(reviewData.difficulty, reviewData.domain)
             }
@@ -542,6 +550,8 @@ function App() {
               onStartExam={(mode) => {
                 setShowStudyDashboard(false);
                 if (mode === "full-practice" || mode === "quick-quiz") {
+                  setExamMode(mode);
+                  setCurrentView("simulator");
                   setShowExamWorkspace(true);
                 }
               }}

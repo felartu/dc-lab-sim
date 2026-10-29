@@ -90,18 +90,21 @@ export function formatDisplayTemperature(gpu: GPU, _node?: DGXNode): string {
   return output;
 }
 
-export function formatDisplayPower(gpu: GPU, _node?: DGXNode): string {
+export function formatDisplayPower(gpu: GPU, node?: DGXNode): string {
   const powerDraw = Math.round(gpu.powerDraw);
   const powerLimit = Math.round(gpu.powerLimit);
-  const minLimit = Math.round(gpu.powerLimit * 0.5);
+  const defaultLimit = node
+    ? getHardwareSpecs(node.systemType).gpu.tdpWatts
+    : powerLimit;
+  const minLimit = Math.round(defaultLimit * 0.5);
   const isSXM = gpu.name?.includes("SXM") || false;
-  const maxLimit = isSXM ? powerLimit : Math.round(gpu.powerLimit * 1.05);
+  const maxLimit = isSXM ? defaultLimit : Math.round(defaultLimit * 1.05);
   let output = `    GPU Power Readings\n`;
   output += `        Power Management                  : Supported\n`;
   output += `        Power Draw                        : ${powerDraw}.00 W\n`;
   output += `        Current Power Limit               : ${powerLimit}.00 W\n`;
   output += `        Requested Power Limit             : ${powerLimit}.00 W\n`;
-  output += `        Default Power Limit               : ${powerLimit}.00 W\n`;
+  output += `        Default Power Limit               : ${defaultLimit}.00 W\n`;
   output += `        Min Power Limit                   : ${minLimit}.00 W\n`;
   output += `        Max Power Limit                   : ${maxLimit}.00 W\n`;
   output += `    Module Power Readings\n`;
@@ -196,7 +199,11 @@ export function formatDisplaySupportedClocks(
 export function formatDisplayPageRetirement(gpu: GPU, _node?: DGXNode): string {
   const sbePagesRetired = Math.floor(gpu.eccErrors.aggregated.singleBit / 10);
   const dbePagesRetired = gpu.eccErrors.aggregated.doubleBit;
-  const pendingRetirement = gpu.eccErrors.doubleBit > 0 ? "Yes" : "No";
+  const pendingRetirement =
+    gpu.eccErrors.doubleBit > 0 ||
+    gpu.xidErrors.some((error) => error.code === 92)
+      ? "Yes"
+      : "No";
   let output = `    Retired Pages\n`;
   output += `        Single Bit ECC                    : ${sbePagesRetired}\n`;
   output += `        Double Bit ECC                    : ${dbePagesRetired}\n`;
@@ -240,7 +247,9 @@ export function formatDisplayFBCStats(_gpu: GPU, _node?: DGXNode): string {
 }
 
 export function formatDisplayRowRemapper(gpu: GPU, _node?: DGXNode): string {
-  const rowsRemapped = gpu.eccErrors.aggregated.doubleBit > 0;
+  const rowsRemapped =
+    gpu.eccErrors.aggregated.doubleBit > 0 ||
+    gpu.xidErrors.some((error) => error.code === 92);
   let output = `    Row Remapper\n`;
   output += `        Correctable Error                 : ${rowsRemapped ? "true" : "false"}\n`;
   output += `        Uncorrectable Error               : ${gpu.eccErrors.doubleBit > 0 ? "true" : "false"}\n`;

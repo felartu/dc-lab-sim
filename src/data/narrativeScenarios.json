@@ -168,7 +168,7 @@
         {
           "id": "step-10",
           "type": "command",
-          "situation": "Your mentor nods approvingly. 'Good. Now check the system log.'",
+          "situation": "Your mentor nods approvingly. 'Good. Now check the GPUs on this node.'",
           "task": "Run nvidia-smi to see the GPUs on this training node.",
           "expectedCommands": ["nvidia-smi"],
           "hints": ["Type: nvidia-smi", "This shows all GPUs and their status"],
@@ -1794,10 +1794,24 @@
       "domain": 2,
       "title": "The Fiber Optic Fault",
       "narrative": {
-        "hook": "A newly racked DGX node's InfiniBand ports refuse to train at full {{NET_PROTOCOL}} {{NET_RATE_GBS}} Gb/s speed.",
-        "setting": "The datacenter team just installed a new {{SYSTEM_NAME}} node. Cabling is complete, but the fabric manager reports degraded link widths on two ports.",
-        "resolution": "You traced the issue to a faulty QSFP-DD transceiver with dirty fiber connectors, confirmed via mlxlink eye diagram analysis and mlxcables diagnostics. After reseating and cleaning the optics, all ports trained at full 4x {{NET_PROTOCOL}} speed."
+        "hook": "A newly racked DGX node's InfiniBand links refuse to train at full {{NET_PROTOCOL}} {{NET_RATE_GBS}} Gb/s speed.",
+        "setting": "The datacenter team just installed a new {{SYSTEM_NAME}} node. Cabling is complete, but the fabric manager reports degraded link widths on two HCA links.",
+        "resolution": "You traced the issue to a faulty QSFP-DD transceiver with dirty fiber connectors, confirmed via mlxlink eye diagram analysis and mlxcables diagnostics. After reseating and cleaning the optics, both affected links trained at full 4x {{NET_PROTOCOL}} speed."
       },
+      "faults": [
+        {
+          "nodeId": "dgx-00",
+          "type": "ib-link-degraded",
+          "severity": "warning",
+          "parameters": { "hcaId": 0, "portNumber": 1, "linkWidth": 1 }
+        },
+        {
+          "nodeId": "dgx-00",
+          "type": "ib-link-degraded",
+          "severity": "warning",
+          "parameters": { "hcaId": 1, "portNumber": 1, "linkWidth": 1 }
+        }
+      ],
       "commandFamilies": ["infiniband-tools", "gpu-monitoring", "bmc-hardware"],
       "estimatedMinutes": 15,
       "difficulty": "beginner",
@@ -1812,10 +1826,10 @@
           "validation": {
             "type": "none"
           },
-          "conceptContent": "InfiniBand is a high-bandwidth, low-latency network fabric used in GPU clusters for inter-node communication.\n\n{{SYSTEM_NAME}} uses {{NET_PROTOCOL}} (Next Data Rate) InfiniBand:\n- 400 Gb/s per port (4x lanes at 100 Gb/s each)\n- Sub-microsecond latency\n- RDMA (Remote Direct Memory Access) for GPU-to-GPU transfers\n\nKey concepts:\n- Link Width: Number of lanes (1x, 4x). Full speed requires 4x.\n- Link Rate: Speed per lane. {{NET_PROTOCOL}} = 100 Gb/s per lane.\n- HCA: Host Channel Adapter — the InfiniBand NIC in each node.\n- Transceiver: QSFP-DD module that converts electrical signals to optical.\n\nDegraded link width (1x instead of 4x) usually points to a cable or transceiver issue.",
+          "conceptContent": "InfiniBand is a high-bandwidth, low-latency network fabric used in GPU clusters for inter-node communication.\n\n{{SYSTEM_NAME}} uses {{NET_PROTOCOL}} InfiniBand with a full-width per-port rate of {{NET_RATE_GBS}} Gb/s. The link uses four lanes at full width; a 1x link carries roughly one-quarter of the full-width bandwidth.\n\nOther key concepts:\n- Link Width: Number of active lanes (1x, 2x, or 4x). Full speed requires 4x.\n- HCA: Host Channel Adapter — the InfiniBand NIC in each node.\n- Transceiver: QSFP-DD module that converts electrical signals to optical.\n- RDMA (Remote Direct Memory Access) enables GPU-to-GPU transfers with sub-microsecond fabric latency.\n\nA degraded link width usually points to a cable or transceiver issue.",
           "tips": [
             "ibstat is the first command to check port status and link speed",
-            "{{NET_PROTOCOL}} at 1x width runs at only 100 Gb/s instead of 400 Gb/s — a 75% bandwidth loss"
+            "A 1x link width carries roughly one-quarter of the full-width {{NET_RATE_GBS}} Gb/s bandwidth"
           ]
         },
         {
@@ -1836,13 +1850,13 @@
         },
         {
           "id": "step-3",
-          "situation": "The new {{SYSTEM_NAME}} node has been racked and cabled. The network team says two InfiniBand ports are showing reduced bandwidth.",
-          "task": "Start by checking the InfiniBand HCA port status to see which ports are active and their link rates.",
+          "situation": "The new {{SYSTEM_NAME}} node has been racked and cabled. The network team says two InfiniBand links are showing reduced bandwidth.",
+          "task": "Start by checking HCA port status to identify which links have reduced active width.",
           "expectedCommands": ["ibstat"],
           "hints": [
             "ibstat shows HCA port status",
-            "Look at the 'Rate' field for each port",
-            "{{NET_PROTOCOL}} should show {{NET_RATE_GBS}} Gb/s"
+            "Check both the Rate and Link width fields",
+            "A 1x width is degraded even when the nominal {{NET_PROTOCOL}} rate is shown"
           ],
           "validation": {
             "type": "command",
@@ -1852,8 +1866,8 @@
         },
         {
           "id": "step-4",
-          "situation": "ibstat shows ports 1 and 2 are Active but at only 100 Gb/s instead of 400 Gb/s. The ports are training at reduced width (1x instead of 4x).",
-          "task": "Check the fabric-wide link information to see how these ports appear to the rest of the network.",
+          "situation": "ibstat shows two HCA links are Active at {{NET_RATE_GBS}} Gb/s {{NET_PROTOCOL}}, but only at 1x width instead of 4x. Each carries roughly one-quarter of full-width bandwidth.",
+          "task": "Check the fabric-wide link information to confirm both degraded links.",
           "expectedCommands": ["iblinkinfo"],
           "hints": [
             "iblinkinfo shows all fabric links",
@@ -1879,8 +1893,8 @@
         },
         {
           "id": "step-5",
-          "situation": "iblinkinfo confirms two links on the new node are at 1x width. All other nodes are at 4x. The problem is isolated to this node's ports.",
-          "task": "Use mlxcables to inspect the transceiver module information on the affected ports.",
+          "situation": "iblinkinfo confirms two links on the new node are at 1x width. All other links are at 4x. The problem is isolated to this node's transceivers or cabling.",
+          "task": "Use mlxcables to inspect both transceiver modules on the affected links.",
           "expectedCommands": ["mlxcables"],
           "hints": [
             "mlxcables shows cable and transceiver details",
@@ -1895,12 +1909,12 @@
         },
         {
           "id": "step-6",
-          "situation": "mlxcables shows the QSFP-DD transceivers are installed, but one reports elevated temperature and the other shows a 'high bit error rate' flag.",
+          "situation": "mlxcables shows both QSFP-DD transceivers are installed; one reports elevated temperature and the other a high bit error rate.",
           "task": "Run mlxlink to check the physical signal quality and eye diagram metrics on the degraded port.",
-          "expectedCommands": ["mlxlink -d mlx5_0 -p 1 -c"],
+          "expectedCommands": ["mlxlink -d mlx5_0 -p 1 --show_eye"],
           "hints": [
             "mlxlink -d <device> -p <port> shows link details",
-            "Add -c for cable/eye info",
+            "Use --show_eye to inspect eye diagram metrics",
             "Look at signal-to-noise ratio"
           ],
           "validation": {
@@ -1922,7 +1936,7 @@
         },
         {
           "id": "step-7",
-          "situation": "mlxlink shows the eye height is critically low on lanes 2 and 3, indicating poor signal quality on those fiber strands.",
+          "situation": "mlxlink shows critically low eye height on three lanes, so only one lane can train reliably.",
           "task": "Check the PCIe connectivity to make sure the HCA itself is healthy and properly seated.",
           "expectedCommands": ["lspci | grep Mellanox"],
           "hints": [
@@ -1938,7 +1952,7 @@
         },
         {
           "id": "step-8",
-          "situation": "lspci confirms the ConnectX-7 HCA is properly seated at PCIe Gen5 x16. The HCA hardware is fine — the problem is definitely in the optics or cabling.",
+          "situation": "lspci confirms the ConnectX HCA is properly seated. The HCA hardware is fine — the problem is in the optics or cabling.",
           "task": "Check the BMC sensors to see if the node's ambient temperature could be affecting the transceivers.",
           "expectedCommands": ["sensors"],
           "hints": [
@@ -1955,12 +1969,26 @@
         {
           "id": "step-9",
           "situation": "Temperatures are within normal range. The issue is isolated to the transceiver optics. The fiber connectors likely got contaminated during installation.",
-          "task": "After cleaning the fiber connectors and reseating the transceivers, verify the ports have come up at full speed.",
+          "task": "After cleaning the fiber connectors and reseating both transceivers, verify the links have retrained at full width.",
           "expectedCommands": ["ibstat"],
+          "autoFaults": [
+            {
+              "nodeId": "dgx-00",
+              "type": "ib-link-restored",
+              "severity": "warning",
+              "parameters": { "hcaId": 0, "portNumber": 1 }
+            },
+            {
+              "nodeId": "dgx-00",
+              "type": "ib-link-restored",
+              "severity": "warning",
+              "parameters": { "hcaId": 1, "portNumber": 1 }
+            }
+          ],
           "hints": [
             "ibstat to re-check port rates",
             "Should now show {{NET_RATE_GBS}} Gb/s",
-            "Both ports should be 4x width"
+            "Both affected links should be 4x width"
           ],
           "validation": {
             "type": "command",
@@ -1970,7 +1998,7 @@
         },
         {
           "id": "step-10",
-          "situation": "Both ports now show {{NET_RATE_GBS}} Gb/s at full 4x width. The fiber cleaning resolved the issue.",
+          "situation": "Both links now show {{NET_RATE_GBS}} Gb/s at full 4x width. The fiber cleaning resolved the issue.",
           "task": "Run a final iblinkinfo to confirm the node is fully integrated into the fabric at full bandwidth.",
           "expectedCommands": ["iblinkinfo"],
           "hints": [
@@ -4022,7 +4050,7 @@
       "steps": [
         {
           "id": "step-1",
-          "situation": "Monitoring alerts show frequent XID 79 errors on dgx-05 over the past 24 hours.",
+          "situation": "Monitoring alerts show recurring XID 79 errors on GPU 5 of dgx-05 over the past 24 hours.",
           "task": "Check system logs for XID error patterns and frequency.",
           "expectedCommands": ["ssh dgx-05", "dmesg | grep -i xid"],
           "hints": [
@@ -4035,11 +4063,32 @@
             "type": "command",
             "command": "dmesg",
             "pattern": "XID|NVRM|error"
-          }
+          },
+          "autoFaults": [
+            {
+              "nodeId": "dgx-05",
+              "gpuId": 5,
+              "type": "xid-error",
+              "severity": "critical",
+              "parameters": {
+                "xid": 79,
+                "description": "GPU has fallen off the bus"
+              }
+            },
+            {
+              "nodeId": "dgx-05",
+              "gpuId": 5,
+              "type": "thermal",
+              "severity": "critical",
+              "parameters": {
+                "targetTemp": 95
+              }
+            }
+          ]
         },
         {
           "id": "step-2",
-          "situation": "dmesg shows 'XID 79' errors occurring every 2-3 hours, affecting different GPUs.",
+          "situation": "The kernel log confirms recurring XID 79 errors on GPU 5. Check which GPUs remain visible to the driver.",
           "task": "Check current GPU status using nvidia-smi.",
           "expectedCommands": ["nvidia-smi"],
           "hints": [
@@ -4052,18 +4101,6 @@
             "command": "nvidia-smi",
             "pattern": "GPU|ERR"
           },
-          "autoFaults": [
-            {
-              "nodeId": "dgx-05",
-              "gpuId": 5,
-              "type": "xid-error",
-              "severity": "critical",
-              "parameters": {
-                "xid": 79,
-                "description": "GPU has fallen off the bus"
-              }
-            }
-          ],
           "quiz": {
             "question": "What does XID 79 (GPU has fallen off the bus) typically indicate?",
             "options": [
@@ -4078,7 +4115,7 @@
         },
         {
           "id": "step-3",
-          "situation": "Currently all 8 GPUs are visible but GPU 5 was recently reset. Pattern suggests intermittent failures.",
+          "situation": "nvidia-smi cannot see GPU 5 after the XID 79 event. Check the BMC event log for a correlated thermal or power event.",
           "task": "Check BMC System Event Log for correlated hardware events.",
           "expectedCommands": ["ipmitool sel elist"],
           "hints": [
@@ -4094,7 +4131,7 @@
         },
         {
           "id": "step-4",
-          "situation": "SEL shows thermal events preceding each XID error by 5-10 minutes.",
+          "situation": "SEL records GPU 5 over-temperature and PCIe AER events alongside XID 79. Check the current thermal readings.",
           "task": "Check current thermal sensor readings across the system.",
           "expectedCommands": ["sensors"],
           "hints": [
@@ -4121,13 +4158,13 @@
         },
         {
           "id": "step-5",
-          "situation": "Ambient temperature in the rack area shows significant variation. HVAC issue suspected.",
-          "task": "Check historical temperature data in the BMC.",
+          "situation": "The HVAC alarm has cleared, but facilities reports a 15°C daily inlet-temperature swing. Compare it with the current BMC reading.",
+          "task": "Record the current inlet temperature from the BMC.",
           "expectedCommands": ["ipmitool sensor get 'Inlet Temp'"],
           "hints": [
-            "ipmitool sensor get specific sensor",
-            "Look for temp trends",
-            "BMC may log history"
+            "ipmitool sensor get 'Inlet Temp' shows the current value",
+            "Compare the current reading with facilities' daily trend",
+            "Use the SEL to review recorded hardware events"
           ],
           "validation": {
             "type": "command",
@@ -4137,7 +4174,7 @@
         },
         {
           "id": "step-6",
-          "situation": "Inlet temperature varies 15C over the course of each day. HVAC cycling too aggressively.",
+          "situation": "Facilities confirms the 15°C daily swing. Document the GPU health baseline before maintenance.",
           "task": "Document GPU health status before scheduling maintenance.",
           "expectedCommands": ["nvidia-smi -q"],
           "hints": [
@@ -4153,7 +4190,7 @@
         },
         {
           "id": "step-7",
-          "situation": "GPU health looks okay but XID errors are accumulating. Create support bundle.",
+          "situation": "GPU 5 remains unavailable while the other GPUs are visible. Create a support bundle before maintenance.",
           "task": "Generate nvidia-bug-report for detailed analysis.",
           "expectedCommands": ["nvidia-bug-report.sh"],
           "hints": [
@@ -4196,8 +4233,8 @@
         },
         {
           "id": "step-9",
-          "situation": "Diagnostics show borderline results on GPU 5. Recommend proactive monitoring.",
-          "task": "Drain the node for inspection and potential PCIe reseat.",
+          "situation": "Diagnostics confirm GPU 5 is unavailable. Drain the node before scheduling a PCIe reseat and power cycle.",
+          "task": "Drain dgx-05 for inspection and repair.",
           "expectedCommands": [
             "scontrol update nodename=dgx-05 state=drain reason='XID 79 PCIe reseat'"
           ],
@@ -4214,9 +4251,9 @@
         },
         {
           "id": "step-10",
-          "situation": "Node drained. After PCIe reseat and HVAC fix, verify recovery.",
-          "task": "Run final nvidia-smi check after maintenance.",
-          "expectedCommands": ["nvidia-smi"],
+          "situation": "The PCIe reseat and HVAC repair are complete, and dgx-05 is drained. Power-cycle it, then verify all GPUs return.",
+          "task": "Power-cycle the repaired node and confirm all eight GPUs are visible.",
+          "expectedCommands": ["ipmitool chassis power cycle", "nvidia-smi"],
           "hints": [
             "nvidia-smi for GPU status",
             "All 8 should be healthy",

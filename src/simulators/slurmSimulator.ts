@@ -44,6 +44,8 @@ interface SlurmJob {
   dependency?: string;
   arrayTaskId?: number;
   reasonPending?: string;
+  failedRank?: number;
+  rankCount?: number;
 }
 
 /**
@@ -68,8 +70,10 @@ export class SlurmSimulator extends BaseSimulator {
    * Node slurmState and GPU allocation are handled separately by applyFaultsToContext.
    */
   injectJob(seed: SeedJob): void {
+    const jobId = seed.jobId ?? this.nextJobId;
+    this.nextJobId = Math.max(this.nextJobId, jobId + 1);
     const job: SlurmJob = {
-      jobId: this.nextJobId++,
+      jobId,
       partition: seed.partition,
       name: seed.jobName,
       user: seed.user,
@@ -96,6 +100,8 @@ export class SlurmSimulator extends BaseSimulator {
       workDir: `/home/${seed.user}`,
       command: `${seed.jobName}.sh`,
       reasonPending: seed.reasonPending,
+      failedRank: seed.failedRank,
+      rankCount: seed.rankCount,
     };
     this.jobs.push(job);
   }
@@ -1621,6 +1627,52 @@ export class SlurmSimulator extends BaseSimulator {
       jobId !== 0
         ? this.jobs.filter((j) => j.jobId === jobId)
         : this.jobs.slice(-10);
+
+    const format = this.getFlagString(parsed, ["format", "o"]);
+    if (format) {
+      const fields = format.split(",").map((field) => field.trim());
+      const rows: Array<Record<string, string>> = [];
+      for (const job of jobsToShow) {
+        const exitCode =
+          job.state === "COMPLETED"
+            ? "0:0"
+            : job.state === "FAILED"
+              ? "1:0"
+              : "";
+        rows.push({
+          jobid: String(job.jobId),
+          jobname: job.name,
+          nodelist: job.nodelist,
+          state: job.state,
+          exitcode: exitCode,
+        });
+        if (
+          job.state === "FAILED" &&
+          job.failedRank !== undefined &&
+          job.rankCount !== undefined
+        ) {
+          const nodes = job.nodelist.split(",");
+          for (let rank = 0; rank < job.rankCount; rank++) {
+            rows.push({
+              jobid: `${job.jobId}.${rank}`,
+              jobname: job.name,
+              nodelist:
+                rank === job.failedRank ? nodes[0] : nodes[rank % nodes.length],
+              state: "FAILED",
+              exitcode: rank === job.failedRank ? "1:0" : "0:9",
+            });
+          }
+        }
+      }
+      return this.createSuccess(
+        [
+          fields.join(" | "),
+          ...rows.map((row) =>
+            fields.map((field) => row[field.toLowerCase()] ?? "").join(" | "),
+          ),
+        ].join("\n") + "\n",
+      );
+    }
 
     jobsToShow.forEach((job) => {
       const exitCode =
