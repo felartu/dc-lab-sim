@@ -206,7 +206,10 @@ export class MellanoxSimulator extends BaseSimulator {
       // List HCAs per spec Section 5.1
       node.hcas.forEach((hca, idx) => {
         const pciAddr = `0000:${(0xa0 + idx).toString(16)}:00.0`;
-        output += `${hca.devicePath}                      - MT4129 [${hca.caType}]\n`;
+        const devicePartNumber =
+          hca.devicePath.match(/\/(mt\d+)_pciconf\d+$/i)?.[1]?.toUpperCase() ??
+          "Mellanox";
+        output += `${hca.devicePath}                      - ${devicePartNumber} [${hca.caType}]\n`;
 
         if (verbose) {
           output += `         PCI Address:        ${pciAddr}\n`;

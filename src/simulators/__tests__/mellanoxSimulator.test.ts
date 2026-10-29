@@ -155,4 +155,37 @@ describe("MellanoxSimulator", () => {
     expect(cableResult.output).toContain("Bit Error Rate:          High (Warning)");
     expect(cableResult.output.match(/Status:\s+.*Warning/g)).toHaveLength(2);
   });
+
+  it("reports the MST part number from each HCA device path", () => {
+    vi.mocked(useSimulationStore.getState).mockReturnValue({
+      cluster: {
+        nodes: [
+          {
+            id: "dgx-00",
+            dpus: [],
+            hcas: [
+              makeTestHca(0, 4),
+              {
+                ...makeTestHca(1, 4),
+                devicePath: "/dev/mst/mt4123_pciconf1",
+                caType: "ConnectX-6 HCA",
+              },
+            ],
+          },
+        ],
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    simulator.execute(parse("mst start"), context);
+    const result = simulator.execute(parse("mst status"), context);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain(
+      "/dev/mst/mt4129_pciconf0                      - MT4129 [ConnectX-7 HCA]",
+    );
+    expect(result.output).toContain(
+      "/dev/mst/mt4123_pciconf1                      - MT4123 [ConnectX-6 HCA]",
+    );
+  });
 });
