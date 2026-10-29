@@ -940,6 +940,24 @@ describe("scenarioLoader", () => {
         history: [],
         scenarioContext: activeContext,
       };
+      const targetPorts = activeContext
+        .getNode("dgx-00")!
+        .hcas.slice(0, 2)
+        .map((hca) => hca.ports[0]);
+      const degradedIbstat = simulator.executeIbstat(
+        parse("ibstat"),
+        commandContext,
+      ).output;
+      expect(
+        degradedIbstat.match(/Link width: 1x of 4x \(degraded\)/g),
+      ).toHaveLength(2);
+      const reducedBandwidth = targetPorts[0].rate / 4;
+      expect(
+        degradedIbstat.match(
+          new RegExp(`Effective bandwidth: ${reducedBandwidth} Gb/s`, "g"),
+        ),
+      ).toHaveLength(2);
+
       const degradedOutput = simulator.executeIblinkinfo(
         parse("iblinkinfo"),
         commandContext,
@@ -956,6 +974,11 @@ describe("scenarioLoader", () => {
           ?.hcas.slice(0, 2)
           .map((hca) => hca.ports[0].linkWidth),
       ).toEqual([4, 4]);
+      const repairedIbstat = simulator.executeIbstat(
+        parse("ibstat"),
+        commandContext,
+      ).output;
+      expect(repairedIbstat).not.toContain("(degraded)");
       expect(
         simulator.executeIblinkinfo(parse("iblinkinfo"), commandContext).output,
       ).not.toContain("1x, degraded");
